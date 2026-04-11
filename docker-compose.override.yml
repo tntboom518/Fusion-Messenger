@@ -75,6 +75,7 @@ services:
     # TODO: remove once coverage is done locally
     volumes:
       - ./backend/htmlcov:/app/htmlcov
+      - app-media-data:/app/media
     environment:
       SMTP_HOST: "mailcatcher"
       SMTP_PORT: "1025"

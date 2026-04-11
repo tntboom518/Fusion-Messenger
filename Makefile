@@ -27,11 +27,17 @@ setup-backend:
 # Setup frontend dependencies
 setup-frontend:
 	@echo "Installing frontend dependencies..."
-	cd frontend && npm install
+	@. $(HOME)/.nvm/nvm.sh && nvm use 21 && cd frontend && npm install
 
 # Install all dependencies
 install: setup-backend setup-frontend
 	@echo "All dependencies installed!"
+
+# Load nvm for frontend
+export NVM_DIR := $(HOME)/.nvm
+ifeq ($(shell test -d $(NVM_DIR) && echo yes),yes)
+	NODE_PATH := $(shell . $(NVM_DIR)/nvm.sh 2>/dev/null && nvm which 21 2>/dev/null | xargs dirname 2>/dev/null)
+endif
 
 # Run backend with uv
 backend:
@@ -48,7 +54,7 @@ backend:
 frontend:
 	@echo "Starting frontend dev server..."
 	@echo "Frontend will be available at the URL shown below (usually http://localhost:5173)"
-	cd frontend && npm run dev
+	@. $(HOME)/.nvm/nvm.sh && nvm use 21 && cd frontend && npm run dev
 
 # Run both backend and frontend in parallel
 dev:
@@ -63,7 +69,7 @@ dev:
 	fi
 	@trap 'kill 0' EXIT; \
 	cd backend && . .venv/bin/activate && python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 & \
-	cd frontend && npm run dev & \
+	. $(HOME)/.nvm/nvm.sh && nvm use 21 && cd frontend && npm run dev & \
 	wait
 
 # Docker commands

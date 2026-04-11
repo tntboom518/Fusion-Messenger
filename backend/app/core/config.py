@@ -97,11 +97,16 @@ class Settings(BaseSettings):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def emails_enabled(self) -> bool:
-        return bool(self.SMTP_HOST and self.EMAILS_FROM_EMAIL)
+        return bool(self.SMTP_HOST and self.SMTP_FROM_EMAIL)
 
     EMAIL_TEST_USER: EmailStr = "test@example.com"
     FIRST_SUPERUSER: EmailStr
     FIRST_SUPERUSER_PASSWORD: str
+
+    # Медиа файлы
+    MEDIA_MAX_SIZE: int = 10 * 1024 * 1024  # 10 МБ
+    MEDIA_STORAGE_LIMIT: int = 1024 * 1024 * 1024  # 1 ГБ
+    MEDIA_UPLOAD_DIR: str = "media"
 
     def _check_default_secret(self, var_name: str, value: str | None) -> None:
         if value == "changethis":

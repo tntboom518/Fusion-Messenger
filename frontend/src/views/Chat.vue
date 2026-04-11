@@ -27,11 +27,44 @@
             <strong>{{ getSenderName(message) }}</strong>
             <span class="message-time">{{ formatTime(message.created_at) }}</span>
           </div>
+          <div v-if="message.media_type" class="message-media">
+            <img 
+              v-if="message.media_type === 'image'" 
+              :src="message.media_url" 
+              :alt="message.media_filename"
+              class="media-image"
+              @click="openMediaModal(message)"
+            />
+            <div v-else-if="message.media_type === 'audio'" class="media-audio">
+              <audio :src="message.media_url" controls></audio>
+            </div>
+            <div v-else-if="message.media_type === 'document'" class="media-document">
+              <a :href="message.media_url" :download="message.media_filename" class="document-link">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                  <polyline points="14,2 14,8 20,8"/>
+                </svg>
+                <span>{{ message.media_filename }}</span>
+              </a>
+            </div>
+          </div>
           <div class="message-content">{{ message.content }}</div>
         </div>
       </div>
 
       <div class="input-container">
+        <label class="attach-btn">
+          <input
+            type="file"
+            ref="fileInput"
+            @change="handleFileSelect"
+            accept="image/*,audio/*,.pdf,.doc,.docx,.txt"
+            hidden
+          />
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
+          </svg>
+        </label>
         <input
           v-model="newMessage"
           type="text"
@@ -39,9 +72,13 @@
           @keyup.enter="sendMessage"
           @input="handleTyping"
         />
-        <button @click="sendMessage" :disabled="!newMessage.trim()">
+        <button @click="sendMessage" :disabled="!newMessage.trim() && !selectedFile">
           Отправить
         </button>
+      </div>
+      <div v-if="selectedFile" class="file-preview">
+        <span class="file-name">{{ selectedFile.name }}</span>
+        <button @click="clearFile" class="clear-file">×</button>
       </div>
     </div>
 
@@ -136,6 +173,9 @@ export default {
     const addingMembers = ref(false)
     const addMemberError = ref('')
     const currentChat = ref(null)
+    const fileInput = ref(null)
+    const selectedFile = ref(null)
+    const uploading = ref(false)
 
     const loadChat = async () => {
       try {
@@ -233,14 +273,34 @@ export default {
     }
 
     const sendMessage = async () => {
-      if (!newMessage.value.trim()) return
+      const hasText = newMessage.value.trim()
+      const hasFile = selectedFile.value
 
-      const content = newMessage.value.trim()
+      if (!hasText && !hasFile) return
+
+      let mediaData = null
+
+      if (hasFile) {
+        uploading.value = true
+        console.log('Uploading file:', selectedFile.value.name, selectedFile.value.type, selectedFile.value.size)
+        try {
+          const uploadResult = await messagesAPI.uploadMedia(selectedFile.value)
+          console.log('Upload result:', uploadResult)
+          mediaData = uploadResult
+        } catch (error) {
+          console.error('Error uploading file:', error)
+          alert('Ошибка загрузки файла')
+          uploading.value = false
+          return
+        }
+        uploading.value = false
+      }
+
+      const content = hasText ? newMessage.value.trim() : (mediaData?.media_filename || 'Файл')
+      console.log('Sending message - content:', content, 'mediaData:', mediaData)
       newMessage.value = ''
 
-      // Отправляем через WebSocket если подключен, иначе через API
       if (ws.value && ws.value.ws && ws.value.ws.readyState === WebSocket.OPEN) {
-        // Оптимистично добавляем сообщение сразу
         const tempId = `temp-${Date.now()}-${Math.random()}`
         const tempMessage = {
           id: tempId,
@@ -248,27 +308,30 @@ export default {
           sender_id: currentUserId.value,
           sender: { id: currentUserId.value, email: '', full_name: 'Вы' },
           content: content,
+          media_type: mediaData?.media_type || null,
+          media_filename: mediaData?.media_filename || null,
+          media_url: mediaData?.media_url || null,
+          media_size: mediaData?.media_size || null,
           created_at: new Date().toISOString(),
           edited_at: null,
-          isTemp: true, // Флаг для временного сообщения
-          tempId: tempId, // Уникальный идентификатор для замены
+          isTemp: true,
+          tempId: tempId,
         }
         messages.value.push(tempMessage)
         scrollToBottom()
         
-        // Отправляем через WebSocket
         try {
-        ws.value.sendMessage(content)
+          console.log('Sending via WebSocket - content:', content, 'mediaData:', mediaData)
+          ws.value.sendMessage(content, mediaData)
+          clearFile()
         } catch (error) {
-          // Если отправка не удалась, удаляем временное сообщение
           const index = messages.value.findIndex(m => m.tempId === tempId)
           if (index !== -1) {
             messages.value.splice(index, 1)
           }
           console.error('Error sending message via WebSocket:', error)
-          // Пытаемся отправить через API как fallback
           try {
-            const message = await messagesAPI.sendMessage(chatId, content)
+            const message = await messagesAPI.sendMessage(chatId, content, mediaData)
             messages.value.push(message)
             scrollToBottom()
           } catch (apiError) {
@@ -277,11 +340,12 @@ export default {
           }
         }
       } else {
-        // Если WebSocket не подключен, используем API
+        console.log('WebSocket not connected, using API')
         try {
-          const message = await messagesAPI.sendMessage(chatId, content)
+          const message = await messagesAPI.sendMessage(chatId, content, mediaData)
           messages.value.push(message)
           scrollToBottom()
+          clearFile()
         } catch (error) {
           console.error('Error sending message:', error)
           alert('Ошибка отправки сообщения')
@@ -293,6 +357,25 @@ export default {
       if (ws.value) {
         ws.value.sendTyping()
       }
+    }
+
+    const handleFileSelect = async (event) => {
+      const file = event.target.files[0]
+      if (!file) return
+
+      const maxSize = 10 * 1024 * 1024 // 10MB
+      if (file.size > maxSize) {
+        alert('Файл слишком большой. Максимальный размер - 10 МБ')
+        event.target.value = ''
+        return
+      }
+
+      selectedFile.value = file
+      event.target.value = ''
+    }
+
+    const clearFile = () => {
+      selectedFile.value = null
     }
 
     const setupWebSocket = () => {
@@ -491,10 +574,15 @@ export default {
       membersToAdd,
       addingMembers,
       addMemberError,
+      selectedFile,
+      uploading,
+      fileInput,
       sendMessage,
       handleTyping,
       getSenderName,
       formatTime,
+      handleFileSelect,
+      clearFile,
       handleMemberSearch,
       toggleAddMember,
       isAddMemberSelected,
@@ -990,6 +1078,111 @@ export default {
   background: rgba(239, 68, 68, 0.1);
   border-radius: 6px;
   border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.attach-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  background: rgba(10, 10, 10, 0.5);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all 0.3s ease;
+}
+
+.attach-btn:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--primary-purple);
+  color: var(--primary-purple-light);
+}
+
+.file-preview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: rgba(147, 51, 234, 0.1);
+  border: 1px solid var(--primary-purple);
+  border-radius: 8px;
+  margin: 0.5rem 1.5rem;
+}
+
+.file-name {
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  word-break: break-all;
+}
+
+.clear-file {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0 0.5rem;
+  transition: color 0.3s ease;
+}
+
+.clear-file:hover {
+  color: var(--error);
+}
+
+.message-media {
+  margin-bottom: 0.5rem;
+}
+
+.media-image {
+  max-width: 300px;
+  max-height: 200px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.3s ease;
+}
+
+.media-image:hover {
+  transform: scale(1.02);
+}
+
+.media-audio audio {
+  width: 100%;
+  max-width: 300px;
+  margin-top: 0.5rem;
+}
+
+.media-document {
+  margin-top: 0.5rem;
+}
+
+.document-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: rgba(10, 10, 10, 0.5);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  text-decoration: none;
+  transition: all 0.3s ease;
+}
+
+.document-link:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--primary-purple);
+}
+
+.own-message .document-link {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: white;
+}
+
+.own-message .document-link:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 </style>
 

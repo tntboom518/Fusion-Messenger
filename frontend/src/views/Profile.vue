@@ -19,10 +19,6 @@
             <label>Имя:</label>
             <span>{{ user.full_name || 'Не указано' }}</span>
           </div>
-          <div class="info-item">
-            <label>ID:</label>
-            <span>{{ user.id }}</span>
-          </div>
         </div>
 
         <div class="danger-zone">

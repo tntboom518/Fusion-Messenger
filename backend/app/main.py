@@ -1,7 +1,9 @@
 import logging
+import os
 import sentry_sdk
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 from sqlmodel import Session, SQLModel, select
 
@@ -77,3 +79,9 @@ if settings.all_cors_origins:
     )
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+# Подключаем статические файлы для медиа
+from pathlib import Path
+media_dir = Path(__file__).parent.parent / settings.MEDIA_UPLOAD_DIR
+if media_dir.exists():
+    app.mount("/api/v1/media/files", StaticFiles(directory=str(media_dir)), name="media")

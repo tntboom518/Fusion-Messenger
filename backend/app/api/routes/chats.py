@@ -234,6 +234,10 @@ def get_messages(
                 sender_id=msg.sender_id,
                 sender=UserPublic.model_validate(sender) if sender else None,
                 content=msg.content,
+                media_type=msg.media_type,
+                media_filename=msg.media_filename,
+                media_url=msg.media_url,
+                media_size=msg.media_size,
                 created_at=msg.created_at,
                 edited_at=msg.edited_at,
             )

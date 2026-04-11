@@ -12,8 +12,17 @@ export default defineConfig({
       'www.paerser2.ru',
       'localhost',
       '127.0.0.1'
-    ]
-    // Убираем proxy - теперь этим занимается nginx
+    ],
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/media': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+    },
   },
   resolve: {
     alias: {

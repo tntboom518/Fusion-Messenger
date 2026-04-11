@@ -140,6 +140,10 @@ class ChatMessage(SQLModel, table=True):
     chat_id: int = Field(foreign_key="chat.id", nullable=False, ondelete="CASCADE")
     sender_id: int = Field(foreign_key="user.id", nullable=False, ondelete="CASCADE")
     content: str = Field(max_length=4096)
+    media_type: str | None = Field(default=None, max_length=50)  # "image", "audio", "document"
+    media_filename: str | None = Field(default=None, max_length=255)  # Имя файла
+    media_url: str | None = Field(default=None, max_length=500)  # URL для доступа к файлу
+    media_size: int | None = Field(default=None)  # Размер файла в байтах
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(DateTime, default=func.now()),
@@ -184,6 +188,10 @@ class ChatAddMembers(SQLModel):
 
 class ChatMessageCreate(SQLModel):
     content: str = Field(min_length=1, max_length=4096)
+    media_type: str | None = Field(default=None, max_length=50)
+    media_filename: str | None = Field(default=None, max_length=255)
+    media_url: str | None = Field(default=None, max_length=500)
+    media_size: int | None = Field(default=None)
 
 
 class ChatMessagePublic(SQLModel):
@@ -192,6 +200,10 @@ class ChatMessagePublic(SQLModel):
     sender_id: int
     sender: UserPublic | None = None
     content: str
+    media_type: str | None = None
+    media_filename: str | None = None
+    media_url: str | None = None
+    media_size: int | None = None
     created_at: datetime
     edited_at: datetime | None = None
 

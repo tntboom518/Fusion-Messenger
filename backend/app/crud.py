@@ -146,7 +146,11 @@ def get_chat(*, session: Session, chat_id: int, user_id: int) -> Chat | None:
     return session.exec(statement).first()
 
 
-def create_message(*, session: Session, chat_id: int, sender_id: int, content: str) -> ChatMessage:
+def create_message(
+    *, session: Session, chat_id: int, sender_id: int, content: str,
+    media_type: str | None = None, media_filename: str | None = None,
+    media_url: str | None = None, media_size: int | None = None
+) -> ChatMessage:
     """Создать сообщение в чате"""
     # Проверяем, что отправитель является участником чата
     member = session.exec(
@@ -159,7 +163,15 @@ def create_message(*, session: Session, chat_id: int, sender_id: int, content: s
     if not member:
         raise ValueError("User is not a member of this chat")
     
-    message = ChatMessage(chat_id=chat_id, sender_id=sender_id, content=content)
+    message = ChatMessage(
+        chat_id=chat_id,
+        sender_id=sender_id,
+        content=content,
+        media_type=media_type,
+        media_filename=media_filename,
+        media_url=media_url,
+        media_size=media_size,
+    )
     session.add(message)
     
     # Обновляем время последнего обновления чата

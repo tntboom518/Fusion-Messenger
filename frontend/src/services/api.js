@@ -116,8 +116,28 @@ export const chatsAPI = {
 }
 
 export const messagesAPI = {
-  sendMessage: async (chatId, content) => {
-    const response = await api.post(`/messages/${chatId}`, { content })
+  sendMessage: async (chatId, content, mediaData = null) => {
+    console.log('messagesAPI.sendMessage called:', { chatId, content, mediaData })
+    const payload = { content }
+    if (mediaData) {
+      payload.media_type = mediaData.media_type
+      payload.media_filename = mediaData.media_filename
+      payload.media_url = mediaData.media_url
+      payload.media_size = mediaData.media_size
+    }
+    console.log('Sending payload to API:', payload)
+    const response = await api.post(`/media/${chatId}`, payload)
+    return response.data
+  },
+  
+  uploadMedia: async (file) => {
+    console.log('messagesAPI.uploadMedia called:', file.name, file.type, file.size)
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await api.post('/media/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    console.log('Upload response:', response.data)
     return response.data
   },
 }

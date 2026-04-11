@@ -121,6 +121,10 @@ async def websocket_endpoint(websocket: WebSocket, chat_id: int):
                             chat_id=chat_id,
                             sender_id=user.id,
                             content=message_data.get("content", ""),
+                            media_type=message_data.get("media_type"),
+                            media_filename=message_data.get("media_filename"),
+                            media_url=message_data.get("media_url"),
+                            media_size=message_data.get("media_size"),
                         )
                         
                         sender = session.get(User, message.sender_id)
@@ -130,6 +134,10 @@ async def websocket_endpoint(websocket: WebSocket, chat_id: int):
                             sender_id=message.sender_id,
                             sender=UserPublic.model_validate(sender) if sender else None,
                             content=message.content,
+                            media_type=message.media_type,
+                            media_filename=message.media_filename,
+                            media_url=message.media_url,
+                            media_size=message.media_size,
                             created_at=message.created_at,
                             edited_at=message.edited_at,
                         )
