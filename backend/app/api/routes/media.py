@@ -1,12 +1,15 @@
 import asyncio
 import logging
 import os
+import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi import APIRouter, HTTPException, Request, UploadFile
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlmodel import Session, func, select
 
 from app import crud
@@ -25,6 +28,7 @@ from app.models import (
 
 router = APIRouter(prefix="/media", tags=["media"])
 logger = logging.getLogger(__name__)
+limiter = Limiter(key_func=get_remote_address)
 
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 ALLOWED_AUDIO_TYPES = {"audio/mpeg", "audio/wav", "audio/ogg", "audio/mp3"}
@@ -37,6 +41,26 @@ ALLOWED_DOCUMENT_TYPES = {
 
 ALLOWED_TYPES = ALLOWED_IMAGE_TYPES | ALLOWED_AUDIO_TYPES | ALLOWED_DOCUMENT_TYPES
 
+ALLOWED_EXTENSIONS = {
+    "jpg", "jpeg", "png", "gif", "webp",
+    "mp3", "wav", "ogg",
+    "pdf", "doc", "docx", "txt"
+}
+
+MAGIC_BYTES = {
+    b'\xff\xd8\xff': 'image/jpeg',
+    b'\x89PNG\r\n\x1a\n': 'image/png',
+    b'GIF87a': 'image/gif',
+    b'GIF89a': 'image/gif',
+    b'RIFF': 'audio/wav',
+    b'ID3': 'audio/mpeg',
+    b'\x1aE\xdf\xa3': 'audio/mpeg',
+    b'%PDF': 'application/pdf',
+    b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1': 'application/msword',
+}
+
+MAX_MESSAGE_CONTENT_LENGTH = 4096
+
 
 def get_media_dir() -> Path:
     """Получить путь к директории для медиа файлов"""
@@ -44,6 +68,83 @@ def get_media_dir() -> Path:
     media_dir = base_path / settings.MEDIA_UPLOAD_DIR
     media_dir.mkdir(parents=True, exist_ok=True)
     return media_dir
+
+
+def validate_filename(filename: str) -> str:
+    """Валидировать имя файла для предотвращения Path Traversal"""
+    if not filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    
+    filename = os.path.basename(filename)
+    
+    if not re.match(r'^[\w\-\.]+$', filename):
+        raise HTTPException(status_code=400, detail="Invalid filename format")
+    
+    ext = filename.lower().split(".")[-1] if "." in filename else ""
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="File extension not allowed")
+    
+    return filename
+
+
+def validate_file_content(file_path: Path, content_type: str) -> bool:
+    """Верифицировать содержимое файла по magic bytes"""
+    try:
+        with open(file_path, 'rb') as f:
+            header = f.read(16)
+        
+        if not header:
+            return False
+        
+        for magic, mime_type in MAGIC_BYTES.items():
+            if header.startswith(magic):
+                if content_type != mime_type:
+                    logger.warning(f"Content-type mismatch: declared {content_type}, detected {mime_type}")
+                    return False
+                return True
+        
+        if content_type in ALLOWED_IMAGE_TYPES:
+            logger.warning(f"Image declared but no valid image magic bytes found")
+            return False
+        
+        if content_type in ALLOWED_AUDIO_TYPES:
+            logger.warning(f"Audio declared but no valid audio magic bytes found")
+            return False
+        
+        if content_type in ALLOWED_DOCUMENT_TYPES:
+            if not _validate_document_content(header, content_type):
+                logger.warning(f"Document declared but content doesn't match")
+                return False
+            return True
+        
+        return False
+    except Exception as e:
+        logger.error(f"Error validating file content: {e}")
+        return False
+
+
+def _validate_document_content(header: bytes, content_type: str) -> bool:
+    """Валидировать содержимое документа"""
+    if content_type == "application/pdf" and not header.startswith(b'%PDF'):
+        return False
+    if content_type == "application/msword" and not header.startswith(b'\xd0\xcf\x11\xe0'):
+        return False
+    if content_type == "text/plain":
+        try:
+            header.decode('utf-8')
+            return True
+        except UnicodeDecodeError:
+            return False
+    return True
+
+
+def is_path_traversal_attempt(filename: str, media_dir: Path) -> bool:
+    """Проверить на попытку Path Traversal"""
+    try:
+        safe_path = (media_dir / filename).resolve()
+        return not str(safe_path).startswith(str(media_dir.resolve()))
+    except Exception:
+        return True
 
 
 def get_storage_size() -> int:
@@ -60,7 +161,7 @@ def get_storage_size() -> int:
 
 
 def cleanup_old_files(limit_bytes: int = None) -> int:
-    """Очистить старые файлы, если хранилище превысило лимит. Возвращает количество освобожденных байт."""
+    """Очистить старые файлы, если хранилище превысило лимит"""
     if limit_bytes is None:
         limit_bytes = settings.MEDIA_STORAGE_LIMIT
 
@@ -126,7 +227,9 @@ def determine_media_type(content_type: str) -> str | None:
 
 
 @router.post("/upload")
+@limiter.limit("10/minute")
 async def upload_media(
+    request: Request,
     file: UploadFile,
     session: SessionDep,
     current_user: CurrentUser,
@@ -161,6 +264,8 @@ async def upload_media(
 
     original_filename = file.filename or "unknown"
     safe_filename = f"{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}_{current_user.id}_{original_filename}"
+    
+    safe_filename = validate_filename(safe_filename)
 
     media_dir = get_media_dir()
     file_path = media_dir / safe_filename
@@ -171,6 +276,10 @@ async def upload_media(
     except Exception as e:
         logger.error(f"Failed to save file: {e}")
         raise HTTPException(status_code=500, detail="Failed to save file")
+    
+    if not validate_file_content(file_path, content_type):
+        file_path.unlink()
+        raise HTTPException(status_code=400, detail="File content does not match declared type")
 
     file_size = file_path.stat().st_size
 
@@ -185,16 +294,32 @@ async def upload_media(
 
 
 @router.get("/files/{filename}")
-async def serve_media_file(filename: str):
-    """Служить медиа файлы"""
+async def serve_media_file(
+    filename: str,
+    session: SessionDep,
+    current_user: CurrentUser,
+):
+    """Служить медиа файлы с проверкой авторизации"""
+    safe_filename = validate_filename(filename)
+    
     media_dir = get_media_dir()
-    file_path = media_dir / filename
+    
+    if is_path_traversal_attempt(safe_filename, media_dir):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    
+    file_path = media_dir / safe_filename
 
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
+    
+    chat_id = _get_chat_id_from_filename(safe_filename)
+    if chat_id:
+        chat = crud.get_chat(session=session, chat_id=chat_id, user_id=current_user.id)
+        if not chat:
+            raise HTTPException(status_code=403, detail="Access denied")
 
     content_type = None
-    ext = filename.lower().split(".")[-1] if "." in filename else ""
+    ext = safe_filename.lower().split(".")[-1] if "." in safe_filename else ""
 
     if ext in ("jpg", "jpeg"):
         content_type = "image/jpeg"
@@ -225,18 +350,37 @@ async def serve_media_file(filename: str):
     return FileResponse(
         path=file_path,
         media_type=content_type,
-        filename=filename,
+        filename=safe_filename,
     )
 
 
+def _get_chat_id_from_filename(filename: str) -> int | None:
+    """Извлечь chat_id из имени файла (формат: timestamp_userid_*)"""
+    try:
+        parts = filename.split('_')
+        if len(parts) >= 2:
+            return int(parts[1])
+    except (ValueError, IndexError):
+        pass
+    return None
+
+
 @router.post("/{chat_id}", response_model=ChatMessagePublic)
+@limiter.limit("30/minute")
 async def create_message(
+    request: Request,
     chat_id: int,
     message_in: ChatMessageCreate,
     session: SessionDep,
     current_user: CurrentUser,
 ) -> Any:
     """Создать сообщение в чате (текстовое или с медиа)"""
+    if message_in.content and len(message_in.content) > MAX_MESSAGE_CONTENT_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Message content exceeds maximum length of {MAX_MESSAGE_CONTENT_LENGTH} characters"
+        )
+    
     chat = crud.get_chat(session=session, chat_id=chat_id, user_id=current_user.id)
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")

@@ -6,6 +6,10 @@ from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 from sqlmodel import Session, SQLModel, select
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from fastapi.responses import JSONResponse
 
 from app import crud
 from app.api.main import api_router
@@ -15,6 +19,9 @@ from app.models import User, UserCreate
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+limiter = Limiter(key_func=get_remote_address)
 
 
 def custom_generate_unique_id(route: APIRoute) -> str:
@@ -67,6 +74,16 @@ app = FastAPI(
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     generate_unique_id_function=custom_generate_unique_id,
 )
+
+app.state.limiter = limiter
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request, exc):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Rate limit exceeded. Please try again later."}
+    )
 
 # Set all CORS enabled origins
 if settings.all_cors_origins:

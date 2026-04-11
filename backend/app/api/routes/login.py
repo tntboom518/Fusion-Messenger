@@ -1,9 +1,11 @@
 from datetime import timedelta
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.security import OAuth2PasswordRequestForm
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app import crud
 from app.api.deps import CurrentUser, SessionDep, get_current_active_superuser
@@ -19,10 +21,13 @@ from app.utils import (
 )
 
 router = APIRouter(tags=["login"])
+limiter = Limiter(key_func=get_remote_address)
 
 
 @router.post("/login/access-token")
+@limiter.limit("5/minute")
 def login_access_token(
+    request: Request,
     session: SessionDep, form_data: Annotated[OAuth2PasswordRequestForm, Depends()]
 ) -> Token:
     """
