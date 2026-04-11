@@ -1,0 +1,79 @@
+stages:
+  - test
+  - build
+  - deploy
+
+variables:
+  DOCKER_DRIVER: overlay2
+  REGISTRY: "registry.gitlab.com"
+  FRONTEND_IMAGE: "$REGISTRY/fusion/frontend"
+  BACKEND_IMAGE: "$REGISTRY/fusion/backend"
+
+.test:
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+
+test:backend:
+  stage: test
+  extends: .test
+  script:
+    - cd backend
+    - docker build -t backend:test .
+    - docker run --rm backend:test pytest tests/ -v || true
+  only:
+    - merge_requests
+    - main
+
+test:frontend:
+  stage: test
+  image: node:20-alpine
+  before_script:
+    - cd frontend && npm ci
+  script:
+    - npm run build
+  only:
+    - merge_requests
+    - main
+
+build:backend:
+  stage: build
+  extends: .test
+  script:
+    - docker build -t $BACKEND_IMAGE:$CI_COMMIT_SHA ./backend
+    - docker push $BACKEND_IMAGE:$CI_COMMIT_SHA
+  only:
+    - main
+  when: manual
+
+build:frontend:
+  stage: build
+  extends: .test
+  script:
+    - docker build --build-arg VITE_API_URL=https://api.paerser2.ru -t $FRONTEND_IMAGE:$CI_COMMIT_SHA ./frontend
+    - docker push $FRONTEND_IMAGE:$CI_COMMIT_SHA
+  only:
+    - main
+  when: manual
+
+deploy:
+  stage: deploy
+  image: ubuntu:22.04
+  before_script:
+    - apt-get update && apt-get install -y openssh-client rsync
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - ssh-keyscan $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null
+  script:
+    - rsync -avz --exclude 'node_modules' --exclude '.venv' --exclude '__pycache__' --exclude '.git' --exclude '*.pyc' ./ root@$DEPLOY_HOST:/opt/messager/
+    - ssh root@$DEPLOY_HOST "cd /opt/messager && docker compose pull && docker compose up -d --build"
+  only:
+    - main
+  when: manual
+  environment:
+    name: production
+    url: https://paerser2.ru

@@ -97,8 +97,5 @@ if settings.all_cors_origins:
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
-# Подключаем статические файлы для медиа
-from pathlib import Path
-media_dir = Path(__file__).parent.parent / settings.MEDIA_UPLOAD_DIR
-if media_dir.exists():
-    app.mount("/api/v1/media/files", StaticFiles(directory=str(media_dir)), name="media")
+# Примечание: статические файлы для медиа больше не монтируем отдельно
+# Теперь они обслуживаются через API эндпоинт в media.py (без авторизации)
