@@ -215,12 +215,12 @@ def delete_avatar(
 
     if current_user.avatar_url:
         base_path = Path(__file__).parent.parent.parent
-        old_path = (
-            base_path
-            / settings.MEDIA_UPLOAD_DIR
-            / current_user.avatar_url.lstrip("/media/")
-        )
-        if old_path.exists():
+        expected_dir = base_path / settings.MEDIA_UPLOAD_DIR / "avatars"
+        filename = current_user.avatar_url.lstrip("/media/avatars/")
+        filename = filename.replace("..", "").replace("/", "").replace("\\", "")
+        old_path = expected_dir / filename
+        old_path = old_path.resolve()
+        if old_path.exists() and old_path.is_file() and old_path.parent.resolve() == expected_dir.resolve():
             try:
                 os.remove(old_path)
             except:
@@ -262,34 +262,28 @@ def transfer_shekels(
     if not recipient:
         raise HTTPException(status_code=404, detail="Получатель не найден")
 
-    current_user.balance -= transfer_data.amount
-    recipient.balance += transfer_data.amount
+    sender = session.exec(
+        select(User).where(User.id == current_user.id).with_for_update()
+    ).first()
+    recipient_locked = session.exec(
+        select(User).where(User.id == recipient.id).with_for_update()
+    ).first()
+    
+    if not sender or not recipient_locked:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if sender.balance < transfer_data.amount:
+        raise HTTPException(status_code=400, detail="Недостаточно шекелей")
 
-    session.add(current_user)
-    session.add(recipient)
+    sender.balance -= transfer_data.amount
+    recipient_locked.balance += transfer_data.amount
+
+    session.add(sender)
+    session.add(recipient_locked)
     session.commit()
-    session.refresh(current_user)
+    session.refresh(sender)
 
-    return current_user
-
-
-@router.post("/me/add-balance", response_model=UserPublic)
-def add_balance(
-    session: SessionDep,
-    current_user: CurrentUser,
-    amount: dict,
-) -> Any:
-    """Добавить шекели (для тестирования)"""
-    add_amount = amount.get("amount", 0)
-    if add_amount <= 0:
-        raise HTTPException(status_code=400, detail="Сумма должна быть больше 0")
-
-    current_user.balance += add_amount
-    session.add(current_user)
-    session.commit()
-    session.refresh(current_user)
-
-    return current_user
+    return sender
 
 
 @router.delete("/me", response_model=Message)

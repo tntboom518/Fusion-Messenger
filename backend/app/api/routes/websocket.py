@@ -100,6 +100,14 @@ async def websocket_endpoint(websocket: WebSocket, chat_id: int):
     if not user:
         await websocket.close(code=1008, reason="Invalid token")
         return
+    
+    if user.is_banned:
+        await websocket.close(code=1008, reason="User is banned")
+        return
+    
+    if not user.is_active:
+        await websocket.close(code=1008, reason="Inactive user")
+        return
 
     # Проверяем, что пользователь является участником чата
     with Session(engine) as session:
