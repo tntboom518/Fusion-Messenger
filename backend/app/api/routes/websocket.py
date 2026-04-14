@@ -22,11 +22,11 @@ class ConnectionManager:
 
     async def connect(self, websocket: WebSocket, chat_id: int, user_id: int):
         await websocket.accept()
-        
+
         if chat_id not in self.active_connections:
             self.active_connections[chat_id] = set()
         self.active_connections[chat_id].add(websocket)
-        
+
         if user_id not in self.user_connections:
             self.user_connections[user_id] = set()
         self.user_connections[user_id].add(websocket)
@@ -36,7 +36,7 @@ class ConnectionManager:
             self.active_connections[chat_id].discard(websocket)
             if not self.active_connections[chat_id]:
                 del self.active_connections[chat_id]
-        
+
         if user_id in self.user_connections:
             self.user_connections[user_id].discard(websocket)
             if not self.user_connections[user_id]:
@@ -47,9 +47,12 @@ class ConnectionManager:
 
     async def broadcast_to_chat(self, message: dict, chat_id: int):
         import logging
+
         logger = logging.getLogger(__name__)
         if chat_id in self.active_connections:
-            logger.info(f"Broadcasting to {len(self.active_connections[chat_id])} connections in chat {chat_id}")
+            logger.info(
+                f"Broadcasting to {len(self.active_connections[chat_id])} connections in chat {chat_id}"
+            )
             disconnected = set()
             for connection in self.active_connections[chat_id]:
                 try:
@@ -58,7 +61,7 @@ class ConnectionManager:
                 except Exception as e:
                     logger.error(f"Error sending message to connection: {e}")
                     disconnected.add(connection)
-            
+
             # Удаляем отключенные соединения
             for conn in disconnected:
                 self.active_connections[chat_id].discard(conn)
@@ -76,7 +79,7 @@ async def get_user_from_websocket(websocket: WebSocket, token: str) -> User | No
         user_id: int = int(payload.get("sub"))
         if user_id is None:
             return None
-        
+
         with Session(engine) as session:
             user = session.get(User, user_id)
             return user
@@ -92,26 +95,26 @@ async def websocket_endpoint(websocket: WebSocket, chat_id: int):
     if not token:
         await websocket.close(code=1008, reason="Token required")
         return
-    
+
     user = await get_user_from_websocket(websocket, token)
     if not user:
         await websocket.close(code=1008, reason="Invalid token")
         return
-    
+
     # Проверяем, что пользователь является участником чата
     with Session(engine) as session:
         chat = crud.get_chat(session=session, chat_id=chat_id, user_id=user.id)
         if not chat:
             await websocket.close(code=1008, reason="Chat not found or access denied")
             return
-    
+
     await manager.connect(websocket, chat_id, user.id)
-    
+
     try:
         while True:
             data = await websocket.receive_text()
             message_data = json.loads(data)
-            
+
             if message_data.get("type") == "message":
                 # Создаем сообщение
                 with Session(engine) as session:
@@ -126,13 +129,25 @@ async def websocket_endpoint(websocket: WebSocket, chat_id: int):
                             media_url=message_data.get("media_url"),
                             media_size=message_data.get("media_size"),
                         )
-                        
+
                         sender = session.get(User, message.sender_id)
+                        if sender:
+                            sender_public = UserPublic(
+                                id=sender.id,
+                                email=sender.email,
+                                full_name=sender.full_name,
+                                avatar_url=sender.avatar_url,
+                                is_active=sender.is_active,
+                                is_superuser=sender.is_superuser,
+                            )
+                        else:
+                            sender_public = None
+
                         message_public = ChatMessagePublic(
                             id=message.id,
                             chat_id=message.chat_id,
                             sender_id=message.sender_id,
-                            sender=UserPublic.model_validate(sender) if sender else None,
+                            sender=sender_public,
                             content=message.content,
                             media_type=message.media_type,
                             media_filename=message.media_filename,
@@ -141,22 +156,24 @@ async def websocket_endpoint(websocket: WebSocket, chat_id: int):
                             created_at=message.created_at,
                             edited_at=message.edited_at,
                         )
-                        
+
                         # Отправляем сообщение всем участникам чата
                         # Используем mode='json' для правильной сериализации datetime
                         await manager.broadcast_to_chat(
                             {
                                 "type": "new_message",
-                                "message": message_public.model_dump(mode='json'),
+                                "message": message_public.model_dump(mode="json"),
                             },
                             chat_id,
                         )
                     except Exception as e:
-                        await websocket.send_json({
-                            "type": "error",
-                            "message": str(e),
-                        })
-            
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "message": str(e),
+                            }
+                        )
+
             elif message_data.get("type") == "typing":
                 # Уведомление о печати
                 await manager.broadcast_to_chat(
@@ -167,7 +184,6 @@ async def websocket_endpoint(websocket: WebSocket, chat_id: int):
                     },
                     chat_id,
                 )
-    
+
     except WebSocketDisconnect:
         manager.disconnect(websocket, chat_id, user.id)
-

@@ -3,6 +3,7 @@
     <header class="header">
       <h1>Fusion</h1>
       <div class="header-actions">
+        <router-link v-if="currentUser && currentUser.is_superuser" to="/admin" class="admin-link">⚙️ Админ</router-link>
         <router-link to="/profile" class="profile-link">Профиль</router-link>
         <button @click="handleLogout" class="logout-btn">Выйти</button>
       </div>
@@ -58,6 +59,14 @@
             :class="{ 'group-chat': chat.chat_type === 'group' }"
             @click="openChat(chat.id)"
           >
+            <img 
+              v-if="getChatAvatar(chat)" 
+              :src="getChatAvatar(chat)" 
+              class="chat-avatar" 
+            />
+            <div v-else class="chat-avatar-placeholder">
+              {{ getChatInitials(chat) }}
+            </div>
             <div class="chat-info">
               <div class="chat-name-row">
                 <strong>{{ getChatName(chat) }}</strong>
@@ -205,12 +214,29 @@ export default {
     const getChatName = (chat) => {
       if (chat.name) return chat.name
       if (chat.members && chat.members.length > 0) {
-        const otherMember = chat.members.find(m => m.user_id !== currentUser.value?.id)
+        const otherMember = chat.members.find(m => m.user_id !== (currentUser.value ? currentUser.value.id : null))
         if (otherMember) {
           return otherMember.user?.full_name || otherMember.user?.email || 'Пользователь'
         }
       }
       return 'Чат'
+    }
+
+    const getChatAvatar = (chat) => {
+      if (chat.chat_type === 'group') return null
+      if (chat.members && chat.members.length > 0) {
+        const otherMember = chat.members.find(m => m.user_id !== (currentUser.value ? currentUser.value.id : null))
+        if (otherMember && otherMember.user?.avatar_url) {
+          return otherMember.user.avatar_url
+        }
+      }
+      return null
+    }
+
+    const getChatInitials = (chat) => {
+      const name = getChatName(chat)
+      if (!name || name === 'Чат') return '?'
+      return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
     }
 
     const formatTime = (dateString) => {
@@ -251,8 +277,7 @@ export default {
       }
       try {
         const response = await usersAPI.search(groupMemberSearch.value)
-        // Исключаем текущего пользователя и уже выбранных
-        const excludeIds = [currentUser.value?.id, ...selectedMembers.value.map(m => m.id)].filter(Boolean)
+        const excludeIds = [currentUser.value ? currentUser.value.id : null, ...selectedMembers.value.map(m => m.id)].filter(Boolean)
         groupSearchResults.value = (response.data || []).filter(u => !excludeIds.includes(u.id))
       } catch (error) {
         console.error('Group member search error:', error)
@@ -327,6 +352,7 @@ export default {
     })
 
     return {
+      currentUser,
       searchQuery,
       searchResults,
       searching,
@@ -343,6 +369,8 @@ export default {
       startChat,
       openChat,
       getChatName,
+      getChatAvatar,
+      getChatInitials,
       formatTime,
       handleGroupMemberSearch,
       toggleGroupMember,
@@ -401,6 +429,18 @@ export default {
 }
 
 .profile-link:hover {
+  color: var(--primary-purple);
+  text-decoration: underline;
+}
+
+.admin-link {
+  color: var(--primary-purple-light);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.3s ease;
+}
+
+.admin-link:hover {
   color: var(--primary-purple);
   text-decoration: underline;
 }
@@ -561,8 +601,8 @@ h2 {
 
 .chat-item {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 1rem;
   padding: 1rem;
   border: 1px solid var(--border-color);
   border-radius: 8px;
@@ -570,6 +610,29 @@ h2 {
   cursor: pointer;
   transition: all 0.3s ease;
   background: rgba(10, 10, 10, 0.3);
+}
+
+.chat-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 2px solid var(--primary-purple);
+}
+
+.chat-avatar-placeholder {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary-purple) 0%, var(--primary-purple-light) 100%);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.9rem;
+  flex-shrink: 0;
 }
 
 .chat-item:hover {

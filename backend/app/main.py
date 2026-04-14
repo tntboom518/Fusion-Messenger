@@ -15,7 +15,7 @@ from app import crud
 from app.api.main import api_router
 from app.core.config import settings
 from app.core.db import engine
-from app.models import User, UserCreate
+from app.models import User, UserCreate, NFTItem
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -31,6 +31,7 @@ def custom_generate_unique_id(route: APIRoute) -> str:
 if settings.SENTRY_DSN and settings.ENVIRONMENT != "local":
     sentry_sdk.init(dsn=str(settings.SENTRY_DSN), enable_tracing=True)
 
+
 # Создаем таблицы при старте, если их нет
 def create_tables():
     """Создает таблицы в БД, если их еще нет"""
@@ -43,6 +44,7 @@ def create_tables():
         logger.error(f"Error creating tables: {e}")
         # Не падаем, если таблицы уже существуют
         pass
+
 
 def create_initial_user():
     """Создает начального пользователя, если его нет"""
@@ -65,9 +67,72 @@ def create_initial_user():
     except Exception as e:
         logger.error(f"Error creating initial user: {e}")
 
+
+def create_initial_nfts():
+    """Создает начальные NFT предметы, если их нет"""
+    try:
+        with Session(engine) as session:
+            nfts = session.exec(select(NFTItem)).all()
+            if not nfts:
+                logger.info("Creating initial NFT items...")
+                items = [
+                    NFTItem(
+                        name="Базовая аватарка",
+                        description="Простая аватарка для вашего профиля",
+                        price=100,
+                        rarity="common",
+                        is_active=True,
+                    ),
+                    NFTItem(
+                        name="Неоновый огонь",
+                        description="Яркая неоновая аватарка с эффектом пламени",
+                        price=500,
+                        rarity="rare",
+                        is_active=True,
+                    ),
+                    NFTItem(
+                        name="Космический путешественник",
+                        description="Аватарка в стиле космического исследователя",
+                        price=1500,
+                        rarity="epic",
+                        is_active=True,
+                    ),
+                    NFTItem(
+                        name="Легендарный дракон",
+                        description="Редчайшая аватарка с изображением могущественного дракона",
+                        price=5000,
+                        rarity="legendary",
+                        is_active=True,
+                    ),
+                    NFTItem(
+                        name="Кристальное сердце",
+                        description="Вибрирующее сердце из магических кристаллов",
+                        price=800,
+                        rarity="rare",
+                        is_active=True,
+                    ),
+                    NFTItem(
+                        name="Галактический страж",
+                        description="Загадочный страж из далёкой галактики",
+                        price=3000,
+                        rarity="epic",
+                        is_active=True,
+                    ),
+                ]
+                for item in items:
+                    session.add(item)
+                session.commit()
+                logger.info(f"Created {len(items)} initial NFT items")
+            else:
+                logger.info("NFT items already exist")
+    except Exception as e:
+        logger.error(f"Error creating initial NFTs: {e}")
+
+
 # Создаем таблицы и начального пользователя при импорте модуля
 create_tables()
 create_initial_user()
+create_initial_nfts()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -82,8 +147,9 @@ app.state.limiter = limiter
 async def rate_limit_handler(request, exc):
     return JSONResponse(
         status_code=429,
-        content={"detail": "Rate limit exceeded. Please try again later."}
+        content={"detail": "Rate limit exceeded. Please try again later."},
     )
+
 
 # Set all CORS enabled origins
 if settings.all_cors_origins:

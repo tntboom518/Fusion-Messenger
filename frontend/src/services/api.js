@@ -62,6 +62,37 @@ export const authAPI = {
     return response.data
   },
   
+  uploadAvatar: async (file) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await axios.post(`${API_BASE_URL}/users/me/avatar`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return response.data
+  },
+  
+  deleteAvatar: async () => {
+    const response = await axios.delete(`${API_BASE_URL}/users/me/avatar`)
+    return response.data
+  },
+  
+  transferShekels: async (recipientId, amount) => {
+    const response = await axios.post(`${API_BASE_URL}/users/me/transfer`, {
+      recipient_id: recipientId,
+      amount: amount
+    }, {
+      headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` }
+    })
+    return response.data
+  },
+  
+  addBalance: async (amount) => {
+    const response = await axios.post(`${API_BASE_URL}/users/me/add-balance`, { amount }, {
+      headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` }
+    })
+    return response.data
+  },
+  
   deleteAccount: async () => {
     const response = await api.delete('/users/me')
     return response.data
@@ -71,6 +102,26 @@ export const authAPI = {
 export const usersAPI = {
   search: async (query) => {
     const response = await api.get('/users/search', { params: { query } })
+    return response.data
+  },
+  
+  getAll: async (skip = 0, limit = 100) => {
+    const response = await api.get('/users/all', { params: { skip, limit } })
+    return response.data
+  },
+  
+  banUser: async (userId, reason = null) => {
+    const response = await api.post(`/users/${userId}/ban`, reason ? { reason } : {})
+    return response.data
+  },
+  
+  unbanUser: async (userId) => {
+    const response = await api.post(`/users/${userId}/unban`)
+    return response.data
+  },
+  
+  deleteUser: async (userId) => {
+    const response = await api.delete(`/users/${userId}`)
     return response.data
   },
 }
@@ -113,6 +164,26 @@ export const chatsAPI = {
     })
     return response.data
   },
+  
+  updateMemberRole: async (chatId, memberId, role) => {
+    const response = await api.patch(`/chats/${chatId}/members/${memberId}/role`, { role })
+    return response.data
+  },
+  
+  removeMember: async (chatId, memberId) => {
+    const response = await api.delete(`/chats/${chatId}/members/${memberId}`)
+    return response.data
+  },
+  
+  leaveChat: async (chatId) => {
+    const response = await api.post(`/chats/${chatId}/leave`)
+    return response.data
+  },
+  
+  updateChatName: async (chatId, name) => {
+    const response = await api.patch(`/chats/${chatId}/name`, { name })
+    return response.data
+  },
 }
 
 export const messagesAPI = {
@@ -138,6 +209,28 @@ export const messagesAPI = {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
     console.log('Upload response:', response.data)
+    return response.data
+  },
+  
+  deleteMessage: async (messageId) => {
+    const response = await api.delete(`/messages/${messageId}`)
+    return response.data
+  },
+}
+
+export const nftAPI = {
+  getShop: async () => {
+    const response = await api.get('/users/shop')
+    return response.data
+  },
+  
+  getUserNFTs: async () => {
+    const response = await api.get('/users/me/nfts')
+    return response.data
+  },
+  
+  buyNFT: async (itemId) => {
+    const response = await api.post('/users/me/buy', { item_id: itemId })
     return response.data
   },
 }

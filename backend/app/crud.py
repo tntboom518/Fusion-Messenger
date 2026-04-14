@@ -56,17 +56,15 @@ def authenticate(*, session: Session, email: str, password: str) -> User | None:
 
 # ========== CRUD ОПЕРАЦИИ ДЛЯ МЕССЕНДЖЕРА ==========
 
-def search_users(*, session: Session, query: str, current_user_id: int, limit: int = 20) -> list[User]:
+
+def search_users(
+    *, session: Session, query: str, current_user_id: int, limit: int = 20
+) -> list[User]:
     """Поиск пользователей по email или имени"""
     search_term = f"%{query.lower()}%"
     statement = (
         select(User)
-        .where(
-            or_(
-                User.email.ilike(search_term),
-                User.full_name.ilike(search_term)
-            )
-        )
+        .where(or_(User.email.ilike(search_term), User.full_name.ilike(search_term)))
         .where(User.id != current_user_id)
         .where(User.is_active == True)
         .limit(limit)
@@ -74,7 +72,9 @@ def search_users(*, session: Session, query: str, current_user_id: int, limit: i
     return list(session.exec(statement).all())
 
 
-def get_or_create_private_chat(*, session: Session, user1_id: int, user2_id: int) -> Chat:
+def get_or_create_private_chat(
+    *, session: Session, user1_id: int, user2_id: int
+) -> Chat:
     """Получить или создать приватный чат между двумя пользователями"""
     # Проверяем, существует ли уже приватный чат между этими пользователями
     statement = (
@@ -86,18 +86,18 @@ def get_or_create_private_chat(*, session: Session, user1_id: int, user2_id: int
         .having(func.count(ChatMember.user_id) == 2)
     )
     existing_chat = session.exec(statement).first()
-    
+
     if existing_chat:
         return existing_chat
-    
+
     # Создаем новый приватный чат
     new_chat = Chat(chat_type="private")
     session.add(new_chat)
     session.flush()
-    
+
     # Добавляем обоих пользователей в чат
-    member1 = ChatMember(chat_id=new_chat.id, user_id=user1_id)
-    member2 = ChatMember(chat_id=new_chat.id, user_id=user2_id)
+    member1 = ChatMember(chat_id=new_chat.id, user_id=user1_id, role="member")
+    member2 = ChatMember(chat_id=new_chat.id, user_id=user2_id, role="member")
     session.add(member1)
     session.add(member2)
     session.commit()
@@ -105,20 +105,23 @@ def get_or_create_private_chat(*, session: Session, user1_id: int, user2_id: int
     return new_chat
 
 
-def create_group_chat(*, session: Session, creator_id: int, name: str, member_ids: list[int]) -> Chat:
+def create_group_chat(
+    *, session: Session, creator_id: int, name: str, member_ids: list[int]
+) -> Chat:
     """Создать групповой чат"""
     # Добавляем создателя в список участников
     all_member_ids = [creator_id] + [mid for mid in member_ids if mid != creator_id]
-    
+
     new_chat = Chat(chat_type="group", name=name)
     session.add(new_chat)
     session.flush()
-    
-    # Добавляем всех участников
+
+    # Добавляем всех участников, создатель - админ
     for user_id in all_member_ids:
-        member = ChatMember(chat_id=new_chat.id, user_id=user_id)
+        role = "admin" if user_id == creator_id else "member"
+        member = ChatMember(chat_id=new_chat.id, user_id=user_id, role=role)
         session.add(member)
-    
+
     session.commit()
     session.refresh(new_chat)
     return new_chat
@@ -147,22 +150,27 @@ def get_chat(*, session: Session, chat_id: int, user_id: int) -> Chat | None:
 
 
 def create_message(
-    *, session: Session, chat_id: int, sender_id: int, content: str,
-    media_type: str | None = None, media_filename: str | None = None,
-    media_url: str | None = None, media_size: int | None = None
+    *,
+    session: Session,
+    chat_id: int,
+    sender_id: int,
+    content: str,
+    media_type: str | None = None,
+    media_filename: str | None = None,
+    media_url: str | None = None,
+    media_size: int | None = None,
 ) -> ChatMessage:
     """Создать сообщение в чате"""
     # Проверяем, что отправитель является участником чата
     member = session.exec(
         select(ChatMember).where(
-            ChatMember.chat_id == chat_id,
-            ChatMember.user_id == sender_id
+            ChatMember.chat_id == chat_id, ChatMember.user_id == sender_id
         )
     ).first()
-    
+
     if not member:
         raise ValueError("User is not a member of this chat")
-    
+
     message = ChatMessage(
         chat_id=chat_id,
         sender_id=sender_id,
@@ -173,31 +181,33 @@ def create_message(
         media_size=media_size,
     )
     session.add(message)
-    
+
     # Обновляем время последнего обновления чата
     chat = session.get(Chat, chat_id)
     if chat:
         from datetime import datetime, timezone
+
         chat.updated_at = datetime.now(timezone.utc)
-    
+
     session.commit()
     session.refresh(message)
     return message
 
 
-def get_chat_messages(*, session: Session, chat_id: int, user_id: int, skip: int = 0, limit: int = 50) -> list[ChatMessage]:
+def get_chat_messages(
+    *, session: Session, chat_id: int, user_id: int, skip: int = 0, limit: int = 50
+) -> list[ChatMessage]:
     """Получить сообщения чата"""
     # Проверяем, что пользователь является участником
     member = session.exec(
         select(ChatMember).where(
-            ChatMember.chat_id == chat_id,
-            ChatMember.user_id == user_id
+            ChatMember.chat_id == chat_id, ChatMember.user_id == user_id
         )
     ).first()
-    
+
     if not member:
         return []
-    
+
     statement = (
         select(ChatMessage)
         .where(ChatMessage.chat_id == chat_id)
@@ -209,14 +219,17 @@ def get_chat_messages(*, session: Session, chat_id: int, user_id: int, skip: int
     return list(reversed(messages))  # Возвращаем в хронологическом порядке
 
 
-def update_message(*, session: Session, message_id: int, sender_id: int, content: str) -> ChatMessage | None:
+def update_message(
+    *, session: Session, message_id: int, sender_id: int, content: str
+) -> ChatMessage | None:
     """Обновить сообщение"""
     message = session.get(ChatMessage, message_id)
     if not message or message.sender_id != sender_id:
         return None
-    
+
     message.content = content
     from datetime import datetime, timezone
+
     message.edited_at = datetime.now(timezone.utc)
     session.add(message)
     session.commit()
@@ -229,36 +242,37 @@ def delete_message(*, session: Session, message_id: int, user_id: int) -> bool:
     message = session.get(ChatMessage, message_id)
     if not message or message.sender_id != user_id:
         return False
-    
+
     session.delete(message)
     session.commit()
     return True
 
 
-def add_members_to_group_chat(*, session: Session, chat_id: int, member_ids: list[int], current_user_id: int) -> Chat | None:
+def add_members_to_group_chat(
+    *, session: Session, chat_id: int, member_ids: list[int], current_user_id: int
+) -> Chat | None:
     """Добавить участников в групповой чат"""
     # Проверяем, что чат существует и является групповым
     chat = session.get(Chat, chat_id)
     if not chat or chat.chat_type != "group":
         return None
-    
+
     # Проверяем, что текущий пользователь является участником чата
     current_member = session.exec(
         select(ChatMember).where(
-            ChatMember.chat_id == chat_id,
-            ChatMember.user_id == current_user_id
+            ChatMember.chat_id == chat_id, ChatMember.user_id == current_user_id
         )
     ).first()
-    
+
     if not current_member:
         return None
-    
+
     # Получаем существующих участников
     existing_members = session.exec(
         select(ChatMember).where(ChatMember.chat_id == chat_id)
     ).all()
     existing_user_ids = {m.user_id for m in existing_members}
-    
+
     # Добавляем новых участников
     added_count = 0
     for user_id in member_ids:
@@ -266,28 +280,162 @@ def add_members_to_group_chat(*, session: Session, chat_id: int, member_ids: lis
             # Проверяем, что пользователь существует
             user = session.get(User, user_id)
             if user:
-                member = ChatMember(chat_id=chat_id, user_id=user_id)
+                member = ChatMember(chat_id=chat_id, user_id=user_id, role="member")
                 session.add(member)
                 added_count += 1
-    
+
     if added_count > 0:
         session.commit()
         session.refresh(chat)
-    
+
     return chat
 
 
 def mark_chat_as_read(*, session: Session, chat_id: int, user_id: int) -> None:
     """Отметить чат как прочитанный"""
     from datetime import datetime, timezone
+
     member = session.exec(
         select(ChatMember).where(
-            ChatMember.chat_id == chat_id,
-            ChatMember.user_id == user_id
+            ChatMember.chat_id == chat_id, ChatMember.user_id == user_id
         )
     ).first()
-    
+
     if member:
         member.last_read_at = datetime.now(timezone.utc)
         session.add(member)
         session.commit()
+
+
+def set_member_role(
+    *, session: Session, chat_id: int, member_id: int, role: str, current_user_id: int
+) -> ChatMember | None:
+    """Изменить роль участника (только админ может)"""
+    # Проверяем, что текущий пользователь - админ
+    current_member = session.exec(
+        select(ChatMember).where(
+            ChatMember.chat_id == chat_id, ChatMember.user_id == current_user_id
+        )
+    ).first()
+
+    if not current_member or current_member.role != "admin":
+        return None
+
+    # Получаем участника
+    member = session.get(ChatMember, member_id)
+    if not member or member.chat_id != chat_id:
+        return None
+
+    # Нельзя понизить самого себя
+    if member.user_id == current_user_id:
+        return None
+
+    member.role = role
+    session.add(member)
+    session.commit()
+    session.refresh(member)
+    return member
+
+
+def remove_member(
+    *, session: Session, chat_id: int, member_id: int, current_user_id: int
+) -> bool:
+    """Удалить участника из чата (только админ может)"""
+    # Проверяем, что текущий пользователь - админ
+    current_member = session.exec(
+        select(ChatMember).where(
+            ChatMember.chat_id == chat_id, ChatMember.user_id == current_user_id
+        )
+    ).first()
+
+    if not current_member or current_member.role != "admin":
+        return False
+
+    # Получаем участника
+    member = session.get(ChatMember, member_id)
+    if not member or member.chat_id != chat_id:
+        return False
+
+    # Нельзя удалить самого себя
+    if member.user_id == current_user_id:
+        return False
+
+    session.delete(member)
+    session.commit()
+    return True
+
+
+def leave_chat(*, session: Session, chat_id: int, user_id: int) -> bool:
+    """Пользователь покидает чат"""
+    member = session.exec(
+        select(ChatMember).where(
+            ChatMember.chat_id == chat_id, ChatMember.user_id == user_id
+        )
+    ).first()
+
+    if not member:
+        return False
+
+    session.delete(member)
+    session.commit()
+    return True
+
+
+def update_chat_name(
+    *, session: Session, chat_id: int, name: str, current_user_id: int
+) -> Chat | None:
+    """Изменить название группы (только админ)"""
+    current_member = session.exec(
+        select(ChatMember).where(
+            ChatMember.chat_id == chat_id, ChatMember.user_id == current_user_id
+        )
+    ).first()
+
+    if not current_member or current_member.role != "admin":
+        return None
+
+    chat = session.get(Chat, chat_id)
+    if not chat:
+        return None
+
+    chat.name = name
+    session.add(chat)
+    session.commit()
+    session.refresh(chat)
+    return chat
+
+
+def delete_any_message(
+    *, session: Session, message_id: int, current_user_id: int
+) -> bool:
+    """Удалить любое сообщение (только админ группы)"""
+    message = session.get(ChatMessage, message_id)
+    if not message:
+        return False
+
+    chat = session.get(Chat, message.chat_id)
+    if not chat or chat.chat_type != "group":
+        return False
+
+    current_member = session.exec(
+        select(ChatMember).where(
+            ChatMember.chat_id == chat.id, ChatMember.user_id == current_user_id
+        )
+    ).first()
+
+    if not current_member or current_member.role != "admin":
+        return False
+
+    session.delete(message)
+    session.commit()
+    return True
+
+
+def get_member_role(*, session: Session, chat_id: int, user_id: int) -> str | None:
+    """Получить роль пользователя в чате"""
+    member = session.exec(
+        select(ChatMember).where(
+            ChatMember.chat_id == chat_id, ChatMember.user_id == user_id
+        )
+    ).first()
+    return member.role if member else None

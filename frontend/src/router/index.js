@@ -32,6 +32,12 @@ const routes = [
     component: () => import('../views/Profile.vue'),
     meta: { requiresAuth: true },
   },
+  {
+    path: '/admin',
+    name: 'Admin',
+    component: () => import('../views/Admin.vue'),
+    meta: { requiresAuth: true, requiresSuperuser: true },
+  },
 ]
 
 const router = createRouter({
@@ -49,7 +55,13 @@ router.beforeEach(async (to, from, next) => {
     } else {
       // Проверяем валидность токена
       try {
-        await authAPI.getCurrentUser()
+        const user = await authAPI.getCurrentUser()
+        
+        if (to.meta.requiresSuperuser && !user.is_superuser) {
+          next('/')
+          return
+        }
+        
         next()
       } catch (error) {
         localStorage.removeItem('access_token')

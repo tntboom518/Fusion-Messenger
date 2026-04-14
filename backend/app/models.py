@@ -46,19 +46,47 @@ class User(UserBase, table=True):
         default=None, sa_column=Column(Integer, primary_key=True, autoincrement=True)
     )
     hashed_password: str
+    avatar_url: str | None = Field(default=None, max_length=500)
+    balance: int = Field(default=100)  # Шекели
+    is_banned: bool = Field(default=False)
+    ban_reason: str | None = Field(default=None, max_length=500)
     chat_members: list["ChatMember"] = Relationship(
         back_populates="user", cascade_delete=True
     )
 
 
+# Модель для перевода шекелей
+class TransferShekels(SQLModel):
+    recipient_id: int
+    amount: int = Field(gt=0)
+
+
 # Properties to return via API, id is always required
 class UserPublic(UserBase):
     id: int
+    avatar_url: str | None = None
+    balance: int = 0
+    is_banned: bool = False
+    ban_reason: str | None = None
+    is_superuser: bool = False
+
+
+class UserAdminPublic(UserBase):
+    id: int
+    avatar_url: str | None = None
+    is_active: bool
+    is_superuser: bool
+    is_banned: bool
+    ban_reason: str | None
 
 
 class UsersPublic(SQLModel):
     data: list[UserPublic]
     count: int
+
+
+class BanUser(SQLModel):
+    reason: str | None = Field(default=None, max_length=500)
 
 
 # Generic message
@@ -119,6 +147,7 @@ class ChatMember(SQLModel, table=True):
     )
     chat_id: int = Field(foreign_key="chat.id", nullable=False, ondelete="CASCADE")
     user_id: int = Field(foreign_key="user.id", nullable=False, ondelete="CASCADE")
+    role: str = Field(default="member", max_length=20)  # "admin" или "member"
     joined_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(DateTime, default=func.now()),
@@ -140,9 +169,13 @@ class ChatMessage(SQLModel, table=True):
     chat_id: int = Field(foreign_key="chat.id", nullable=False, ondelete="CASCADE")
     sender_id: int = Field(foreign_key="user.id", nullable=False, ondelete="CASCADE")
     content: str = Field(max_length=4096)
-    media_type: str | None = Field(default=None, max_length=50)  # "image", "audio", "document"
+    media_type: str | None = Field(
+        default=None, max_length=50
+    )  # "image", "audio", "document"
     media_filename: str | None = Field(default=None, max_length=255)  # Имя файла
-    media_url: str | None = Field(default=None, max_length=500)  # URL для доступа к файлу
+    media_url: str | None = Field(
+        default=None, max_length=500
+    )  # URL для доступа к файлу
     media_size: int | None = Field(default=None)  # Размер файла в байтах
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
@@ -177,6 +210,7 @@ class ChatPublic(SQLModel):
 class ChatMemberPublic(SQLModel):
     id: int
     user_id: int
+    role: str
     user: UserPublic
     joined_at: datetime
     last_read_at: datetime | None
@@ -184,6 +218,14 @@ class ChatMemberPublic(SQLModel):
 
 class ChatAddMembers(SQLModel):
     member_ids: list[int] = Field(min_length=1)
+
+
+class ChatRoleUpdate(SQLModel):
+    role: str = Field(min_length=1, max_length=20)
+
+
+class ChatUpdateName(SQLModel):
+    name: str = Field(min_length=1, max_length=255)
 
 
 class ChatMessageCreate(SQLModel):
@@ -224,3 +266,46 @@ class ChatMessagesPublic(SQLModel):
 
 class UserSearch(SQLModel):
     query: str = Field(min_length=1, max_length=100)
+
+
+# NFT модель (предметы для покупки)
+class NFTItem(SQLModel, table=True):
+    id: int | None = Field(
+        default=None, sa_column=Column(Integer, primary_key=True, autoincrement=True)
+    )
+    name: str = Field(max_length=100)
+    description: str | None = Field(default=None, max_length=500)
+    image_url: str | None = Field(default=None, max_length=500)
+    price: int = Field(ge=0)
+    rarity: str = Field(
+        default="common", max_length=20
+    )  # common, rare, epic, legendary
+    is_active: bool = Field(default=True)
+
+
+class NFTItemPublic(SQLModel):
+    id: int
+    name: str
+    description: str | None
+    image_url: str | None
+    price: int
+    rarity: str
+
+
+class UserNFT(SQLModel, table=True):
+    id: int | None = Field(
+        default=None, sa_column=Column(Integer, primary_key=True, autoincrement=True)
+    )
+    user_id: int = Field(foreign_key="user.id")
+    item_id: int = Field(foreign_key="nftitem.id")
+    purchased_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class UserNFTPublic(SQLModel):
+    id: int
+    item: NFTItemPublic
+    purchased_at: datetime
+
+
+class BuyNFT(SQLModel):
+    item_id: int

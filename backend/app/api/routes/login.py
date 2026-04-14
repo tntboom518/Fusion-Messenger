@@ -28,7 +28,8 @@ limiter = Limiter(key_func=get_remote_address)
 @limiter.limit("5/minute")
 def login_access_token(
     request: Request,
-    session: SessionDep, form_data: Annotated[OAuth2PasswordRequestForm, Depends()]
+    session: SessionDep,
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
 ) -> Token:
     """
     OAuth2 compatible token login, get an access token for future requests
@@ -40,6 +41,11 @@ def login_access_token(
         raise HTTPException(status_code=400, detail="Incorrect email or password")
     elif not user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
+    elif user.is_banned:
+        raise HTTPException(
+            status_code=403,
+            detail=f"User is banned. Reason: {user.ban_reason or 'No reason provided'}",
+        )
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     return Token(
         access_token=security.create_access_token(

@@ -2,15 +2,43 @@
   <div class="chat-container">
     <header class="chat-header">
       <button @click="goBack" class="back-btn">← Назад</button>
-      <h2>{{ chatName }}</h2>
+      <div class="chat-title" @click="isAdmin && !isEditingName && (isEditingName = true)">
+        <h2 v-if="!isEditingName">{{ chatName }}</h2>
+        <input 
+          v-else 
+          v-model="editedName" 
+          @blur="saveChatName" 
+          @keyup.enter="saveChatName"
+          @keyup.esc="cancelEditName"
+          class="name-input"
+          maxlength="50"
+          autofocus
+        />
+      </div>
       <div class="header-actions">
         <button
           v-if="isGroupChat"
+          @click="showGroupMembers = true"
+          class="members-btn"
+          title="Участники"
+        >
+          👥
+        </button>
+        <button
+          v-if="isGroupChat && isAdmin"
           @click="showAddMembers = true"
           class="add-members-btn"
-          title="Добавить участников"
+          title="Добавить"
         >
-          + Участники
+          +
+        </button>
+        <button
+          v-if="isGroupChat && isAdmin"
+          @click="isEditingName = true"
+          class="settings-btn"
+          title="Настройки"
+        >
+          ⚙️
         </button>
       </div>
     </header>
@@ -23,10 +51,26 @@
           :key="message.id"
           :class="['message', { 'own-message': message.sender_id === currentUserId }]"
         >
-          <div class="message-header">
-            <strong>{{ getSenderName(message) }}</strong>
-            <span class="message-time">{{ formatTime(message.created_at) }}</span>
-          </div>
+          <img 
+            v-if="message.sender?.avatar_url" 
+            :src="message.sender.avatar_url" 
+            class="message-avatar" 
+          />
+          <div class="message-body">
+            <div class="message-header">
+              <strong>{{ getSenderName(message) }}</strong>
+              <div class="message-actions">
+                <span class="message-time">{{ formatTime(message.created_at) }}</span>
+                <button 
+                  v-if="message.sender_id === currentUserId"
+                  @click.stop="deleteMessage(message)"
+                  class="delete-btn"
+                  title="Удалить"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
           <div v-if="message.media_type" class="message-media">
             <img 
               v-if="message.media_type === 'image'" 
@@ -49,6 +93,7 @@
             </div>
           </div>
           <div class="message-content">{{ message.content }}</div>
+          </div>
         </div>
       </div>
 
@@ -142,6 +187,49 @@
         </div>
       </div>
     </div>
+
+    <!-- Модальное окно участников группы -->
+    <div v-if="showGroupMembers" class="modal-overlay" @click.self="showGroupMembers = false">
+      <div class="modal-content members-modal">
+        <div class="modal-header">
+          <h3>Участники группы</h3>
+          <button @click="showGroupMembers = false" class="close-btn">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="members-list">
+            <div 
+              v-for="member in currentChat?.members" 
+              :key="member.id"
+              class="member-row"
+            >
+              <div class="member-info">
+                <strong>{{ member.user?.full_name || member.user?.email }}</strong>
+                <span class="member-role">{{ member.role === 'admin' ? 'Админ' : 'Участник' }}</span>
+              </div>
+              <div v-if="isAdmin && member.user_id !== currentUserId" class="member-actions">
+                <button 
+                  @click="toggleRole(member)"
+                  class="role-btn"
+                  :title="member.role === 'admin' ? 'Понизить' : 'Назначить админом'"
+                >
+                  {{ member.role === 'admin' ? '⬇' : '⬆' }}
+                </button>
+                <button 
+                  @click="removeMemberFromGroup(member)"
+                  class="remove-btn"
+                  title="Удалить"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div v-if="!isAdmin" class="modal-footer">
+          <button @click="leaveGroup" class="leave-btn">Покинуть группу</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -166,6 +254,10 @@ export default {
     const ws = ref(null)
     const shouldAutoScroll = ref(true)
     const isGroupChat = ref(false)
+    const isAdmin = ref(false)
+    const isEditingName = ref(false)
+    const editedName = ref('')
+    const showGroupMembers = ref(false)
     const showAddMembers = ref(false)
     const memberSearchQuery = ref('')
     const memberSearchResults = ref([])
@@ -183,6 +275,11 @@ export default {
         currentChat.value = chat
         chatName.value = getChatName(chat)
         isGroupChat.value = chat.chat_type === 'group'
+        
+        if (isGroupChat.value) {
+          const myMember = chat.members?.find(m => m.user_id === currentUserId.value)
+          isAdmin.value = myMember?.role === 'admin'
+        }
       } catch (error) {
         console.error('Error loading chat:', error)
       }
@@ -480,6 +577,18 @@ export default {
       }
     }
 
+    const deleteMessage = async (message) => {
+      if (!confirm('Удалить сообщение?')) return
+      
+      try {
+        await messagesAPI.deleteMessage(message.id)
+        messages.value = messages.value.filter(m => m.id !== message.id)
+      } catch (error) {
+        console.error('Error deleting message:', error)
+        alert('Ошибка удаления сообщения')
+      }
+    }
+
     const addMembersToGroup = async () => {
       if (membersToAdd.value.length === 0) {
         addMemberError.value = 'Выберите хотя бы одного участника'
@@ -505,6 +614,78 @@ export default {
       } finally {
         addingMembers.value = false
       }
+    }
+
+    const toggleRole = async (member) => {
+      const newRole = member.role === 'admin' ? 'member' : 'admin'
+      try {
+        console.log('Toggling role:', chatId, member.id, newRole)
+        await chatsAPI.updateMemberRole(chatId, member.id, newRole)
+        await loadChat()
+      } catch (error) {
+        console.error('Error updating role:', error)
+        const msg = error.response?.data?.detail || error.message || 'Ошибка изменения роли'
+        alert(msg)
+      }
+    }
+
+    const removeMemberFromGroup = async (member) => {
+      if (!confirm(`Удалить ${member.user?.full_name || member.user?.email} из группы?`)) return
+      try {
+        await chatsAPI.removeMember(chatId, member.id)
+        await loadChat()
+      } catch (error) {
+        console.error('Error removing member:', error)
+        alert('Ошибка удаления участника')
+      }
+    }
+
+    const leaveGroup = async () => {
+      if (!confirm('Вы уверены, что хотите покинуть группу?')) return
+      try {
+        await chatsAPI.leaveChat(chatId)
+        router.push('/')
+      } catch (error) {
+        console.error('Error leaving group:', error)
+        alert('Ошибка выхода из группы')
+      }
+    }
+
+    const saveChatName = async () => {
+      if (!editedName.value.trim()) {
+        cancelEditName()
+        return
+      }
+      try {
+        const updatedChat = await chatsAPI.updateChatName(chatId, editedName.value.trim())
+        chatName.value = updatedChat.name
+        currentChat.value = updatedChat
+        isEditingName.value = false
+      } catch (err) {
+        console.log('Full error object:', err)
+        console.log('err.response:', err.response)
+        console.log('err.response.status:', err.response?.status)
+        console.log('err.response.data:', err.response?.data)
+        
+        let msg = 'Ошибка'
+        if (err && typeof err === 'object') {
+          if (err.response && err.response.data) {
+            msg = `Status: ${err.response.status}, Data: ${JSON.stringify(err.response.data)}`
+          } else if (err.request) {
+            msg = 'Сервер не отвечает'
+          } else {
+            msg = err.message || JSON.stringify(err)
+          }
+        } else {
+          msg = String(err)
+        }
+        alert(msg)
+      }
+    }
+
+    const cancelEditName = () => {
+      editedName.value = chatName.value
+      isEditingName.value = false
     }
 
     const goBack = () => {
@@ -568,6 +749,10 @@ export default {
       currentUserId,
       messagesContainer,
       isGroupChat,
+      isAdmin,
+      isEditingName,
+      editedName,
+      showGroupMembers,
       showAddMembers,
       memberSearchQuery,
       memberSearchResults,
@@ -577,6 +762,7 @@ export default {
       selectedFile,
       uploading,
       fileInput,
+      currentChat,
       sendMessage,
       handleTyping,
       getSenderName,
@@ -589,6 +775,12 @@ export default {
       removeAddMember,
       addMembersToGroup,
       goBack,
+      deleteMessage,
+      toggleRole,
+      removeMemberFromGroup,
+      leaveGroup,
+      saveChatName,
+      cancelEditName,
     }
   },
 }
@@ -673,6 +865,9 @@ export default {
 }
 
 .message {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
   margin-bottom: 1rem;
   padding: 0.875rem 1rem;
   background: var(--bg-card);
@@ -680,6 +875,24 @@ export default {
   max-width: 70%;
   border: 1px solid var(--border-color);
   transition: all 0.3s ease;
+}
+
+.message-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 2px solid var(--primary-purple);
+}
+
+.message-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.own-message .message-avatar {
+  border-color: rgba(255, 255, 255, 0.5);
 }
 
 .message:hover {
@@ -699,6 +912,29 @@ export default {
   justify-content: space-between;
   margin-bottom: 0.5rem;
   font-size: 0.85rem;
+}
+
+.message-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.delete-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 1.2rem;
+  padding: 0 0.25rem;
+  opacity: 0.5;
+  transition: all 0.3s ease;
+  line-height: 1;
+}
+
+.delete-btn:hover {
+  color: var(--error);
+  opacity: 1;
 }
 
 .message-header strong {
@@ -1183,6 +1419,160 @@ export default {
 
 .own-message .document-link:hover {
   background: rgba(255, 255, 255, 0.2);
+}
+
+.members-btn {
+  padding: 0.5rem 1rem;
+  background: rgba(10, 10, 10, 0.5);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-weight: 500;
+  font-size: 0.875rem;
+  transition: all 0.3s ease;
+}
+
+.members-btn:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--primary-purple);
+  color: var(--primary-purple-light);
+}
+
+.members-modal {
+  max-width: 450px;
+}
+
+.members-list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.member-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.member-row:last-child {
+  border-bottom: none;
+}
+
+.member-row .member-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.member-row .member-info strong {
+  color: var(--text-primary);
+}
+
+.member-role {
+  font-size: 0.8rem;
+  color: var(--primary-purple-light);
+}
+
+.member-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.role-btn {
+  padding: 0.375rem 0.625rem;
+  background: rgba(147, 51, 234, 0.2);
+  border: 1px solid var(--primary-purple);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--primary-purple-light);
+  font-size: 0.9rem;
+  transition: all 0.3s ease;
+}
+
+.role-btn:hover {
+  background: rgba(147, 51, 234, 0.3);
+}
+
+.remove-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 1.25rem;
+  padding: 0 0.25rem;
+  opacity: 0.5;
+  transition: all 0.3s ease;
+}
+
+.remove-btn:hover {
+  color: var(--error);
+  opacity: 1;
+}
+
+.leave-btn {
+  width: 100%;
+  padding: 0.875rem 1.5rem;
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid var(--error);
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--error);
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.leave-btn:hover {
+  background: rgba(239, 68, 68, 0.3);
+}
+
+.chat-title {
+  flex: 1;
+  text-align: center;
+  cursor: default;
+}
+
+.chat-title h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.chat-title:hover h2 {
+  color: var(--primary-purple-light);
+}
+
+.name-input {
+  padding: 0.375rem 0.75rem;
+  border: 1px solid var(--primary-purple);
+  border-radius: 6px;
+  font-size: 1.25rem;
+  font-weight: 600;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  text-align: center;
+  width: 200px;
+}
+
+.name-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.2);
+}
+
+.settings-btn {
+  padding: 0.5rem;
+  background: rgba(10, 10, 10, 0.5);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: all 0.3s ease;
+}
+
+.settings-btn:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--primary-purple);
 }
 </style>
 
