@@ -46,6 +46,11 @@ def login_access_token(
             status_code=403,
             detail=f"User is banned. Reason: {user.ban_reason or 'No reason provided'}",
         )
+
+    # Superusers are always verified
+    if user.is_superuser:
+        user.is_verified = True
+
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     return Token(
         access_token=security.create_access_token(

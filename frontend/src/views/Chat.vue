@@ -14,11 +14,8 @@
           maxlength="50"
           autofocus
         />
-      </div>
+</div>
       <div class="header-actions">
-        <button @click="startCall" class="call-btn" title="Позвонить">
-          📞
-        </button>
         <button
           v-if="isGroupChat"
           @click="showGroupMembers = true"
@@ -67,8 +64,11 @@
           </div>
           <div class="message-body">
             <div class="message-header">
-              <strong :style="getSenderStyle(message)">{{ getSenderName(message) }}</strong>
-              <span v-if="isSenderUltra(message)" class="ultra-badge-small">⚡</span>
+              <span class="sender-name-wrapper">
+                <strong :style="getSenderStyle(message)">{{ getSenderName(message) }}</strong>
+                <span v-if="message.sender?.is_verified" class="verified-badge" title="Верифицирован">✓</span>
+                <span v-if="isSenderUltra(message)" class="ultra-badge-small">⚡</span>
+              </span>
               <div class="message-actions">
                 <span class="message-time">{{ formatTime(message.created_at) }}</span>
                 <span v-if="message.sender_id === currentUserId" class="read-status">
@@ -184,21 +184,7 @@
         
         <div v-if="aiMode === 'edit'" class="ai-edit-mode">
           <div class="form-group">
-            <label>Выбери шаблон:</label>
-            <div class="ai-templates">
-              <button 
-                v-for="tpl in aiTemplates" 
-                :key="tpl.id"
-                @click="selectTemplate(tpl)"
-                :class="['ai-template-btn', { active: aiEditPrompt === tpl.prompt }]"
-              >
-                {{ tpl.name }}
-              </button>
-            </div>
-          </div>
-          
-          <div class="form-group">
-            <label>Или введи свой запрос:</label>
+            <label>Введи запрос:</label>
             <textarea 
               v-model="aiEditPrompt" 
               placeholder="Опиши как изменить сообщение..."
@@ -207,17 +193,35 @@
           </div>
           
           <div class="form-group">
+            <label>Твой текст:</label>
+            <textarea 
+              v-model="aiEditText" 
+              placeholder="Текст для изменения"
+              class="input"
+            ></textarea>
+          </div>
+          
+          <div class="form-group">
             <label>Результат:</label>
             <textarea 
-              v-model="newMessage" 
+              v-model="aiResult" 
               placeholder="Здесь появится отредактированное сообщение"
               class="input"
+              readonly
             ></textarea>
           </div>
           
           <div class="modal-actions">
             <button @click="showAIModal = false" class="btn-secondary">Отмена</button>
-            <button @click="applyAIEdit" class="btn-primary">Применить</button>
+            <button 
+              @click="applyAIEdit" 
+              class="btn-primary"
+            >Отправить</button>
+            <button 
+              v-if="aiResult"
+              @click="applyAIResult" 
+              class="btn-primary"
+            >Применить</button>
           </div>
         </div>
         
@@ -472,13 +476,13 @@ export default {
       
       if (!isUltra) return {}
       
-      // Для своего профиля - свой цвет, для других - их цвет из localStorage
+      // For self - use localStorage. For others - use sender data from server (from DB)
       let color
       if (message.sender_id === currentUserId.value) {
         color = localStorage.getItem('ultra_profile_color')
       } else {
-        // Попробуем получить цвет из sender данных или использовать общий
-        color = message.sender?.ultra_profile_color || localStorage.getItem('ultra_profile_color')
+        // Get from sender data which comes from server/DB
+        color = message.sender?.ultra_profile_color || null
       }
       
       if (!color) return {}
@@ -501,7 +505,14 @@ export default {
       
       if (!isUltra) return ''
       
-      const style = localStorage.getItem('ultra_avatar_style') || 'default'
+      // For self - use localStorage. For others - use sender data from server (from DB)
+      let style
+      if (message.sender_id === currentUserId.value) {
+        style = localStorage.getItem('ultra_avatar_style') || 'default'
+      } else {
+        // Get from sender data which comes from server/DB
+        style = message.sender?.ultra_avatar_style || 'default'
+      }
       
       if (style === 'gold') return 'avatar-gold'
       if (style === 'border') return 'avatar-border'
@@ -587,7 +598,14 @@ export default {
           id: tempId,
           chat_id: chatId,
           sender_id: currentUserId.value,
-          sender: { id: currentUserId.value, email: '', full_name: 'Вы' },
+          sender: { 
+            id: currentUserId.value, 
+            email: currentUser.value?.email || '', 
+            full_name: 'Вы',
+            is_ultra: currentUser.value?.is_ultra || false,
+            ultra_profile_color: localStorage.getItem('ultra_profile_color'),
+            ultra_avatar_style: localStorage.getItem('ultra_avatar_style'),
+          },
           content: content,
           media_type: mediaData?.media_type || null,
           media_filename: mediaData?.media_filename || null,
@@ -637,21 +655,8 @@ export default {
     const showAIModal = ref(false)
     const aiEditText = ref('')
     const aiEditPrompt = ref('')
-    const aiMode = ref('edit') // 'edit' or 'chat'
-    
-    const aiTemplates = [
-      { id: 'respectful', name: 'Уважительный', prompt: 'Перепиши это сообщение вежливо и уважительно, без изменения смысла' },
-      { id: 'youth', name: 'Молодёжный', prompt: 'Перепиши это сообщение на молодёжном сленге, сохраняя смысл' },
-      { id: 'caps', name: 'КАПС', prompt: 'Перепиши это сообщение БОЛЬШИМИ БУКВАМИ, сохраняя смысл' },
-      { id: 'short', name: 'Короткий', prompt: 'Сделай это сообщение короче, сохранив основной смысл' },
-      { id: 'long', name: 'Подробный', prompt: 'Расширь это сообщение, добавив больше деталей, но сохранив смысл' },
-      { id: 'emoji', name: 'С эмодзи', prompt: 'Добавь подходящие эмодзи в это сообщение, не меняя смысла' },
-      { id: 'grammar', name: 'Граммар наци', prompt: 'Исправь грамматику, орфографию и пунктуацию в этом сообщении, не меняя смысла' },
-    ]
-    
-    const selectTemplate = (template) => {
-      aiEditPrompt.value = template.prompt
-    }
+    const aiMode = ref('edit')
+    const aiResult = ref('')
     
     const sendToAI = async () => {
       // Always show edit mode first
@@ -662,20 +667,51 @@ export default {
     }
     
     const applyAIEdit = async () => {
-      const prompt = aiEditPrompt.value.trim()
-      const text = aiEditText.value.trim()
+      const prompt = aiEditPrompt.value
+      const text = aiEditText.value
       
-      if (!prompt || !text) return
+      if (!prompt.trim() || !text.trim()) {
+        alert('Заполни оба поля!')
+        return
+      }
+      
+      const fullPrompt = prompt + ': ' + text
       
       try {
-        const res = await messagesAPI.chatWithAI(`${prompt}: "${text}"`)
-        newMessage.value = res.response
+        const token = localStorage.getItem('access_token')
+        
+        const response = await fetch('/api/v1/messages/ai/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + token
+          },
+          body: JSON.stringify({ message: fullPrompt })
+        })
+        
+        if (!response.ok) {
+          alert('Ошибка: ' + response.status)
+          return
+        }
+        
+        const res = await response.json()
+        
+        if (res.response) {
+          aiResult.value = res.response
+        }
+        
+      } catch (e) {
+        alert('Ошибка: ' + e.message)
+      }
+    }
+    
+    const applyAIResult = () => {
+      if (aiResult.value) {
+        newMessage.value = aiResult.value
         showAIModal.value = false
         aiEditText.value = ''
         aiEditPrompt.value = ''
-      } catch (e) {
-        console.error('AI edit error:', e)
-        alert('Ошибка ИИ')
+        aiResult.value = ''
       }
     }
     
@@ -1322,16 +1358,16 @@ export default {
       removeAddMember,
       addMembersToGroup,
       goBack,
-      deleteMessage,
+deleteMessage,
       toggleRole,
       sendToAI,
       showAIModal,
       aiEditText,
       aiEditPrompt,
       aiMode,
-      aiTemplates,
+      aiResult,
       applyAIEdit,
-      sendAIChat,
+      applyAIResult,
       removeMemberFromGroup,
       leaveGroup,
       saveChatName,
@@ -1339,14 +1375,6 @@ export default {
       isUserOnline,
       onlineUsers,
       typingUser,
-      inCall,
-      callStatus,
-      remoteUser,
-      incomingCall,
-      startCall,
-      endCall,
-      acceptCall,
-      declineCall,
     }
   },
 }
@@ -1555,6 +1583,31 @@ export default {
   display: flex;
   align-items: center;
   gap: 0.25rem;
+}
+
+.ultra-badge-small {
+  font-size: 0.9rem;
+}
+
+.verified-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  background: #3b82f6;
+  color: white;
+  border-radius: 50%;
+  font-size: 0.7rem;
+  font-weight: bold;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+.sender-name-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .ultra-badge-small {
@@ -1788,6 +1841,51 @@ export default {
   cursor: not-allowed;
   box-shadow: none;
   opacity: 0.5;
+}
+
+.voice-btn {
+  padding: 0.5rem;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 1.2rem;
+  transition: all 0.3s ease;
+}
+
+.voice-btn:hover {
+  background: var(--bg-card-hover);
+}
+
+.voice-btn.recording {
+  background: #ef4444;
+  border-color: #ef4444;
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+.recording-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  font-weight: 500;
+}
+
+.recording-dot {
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 .loading {

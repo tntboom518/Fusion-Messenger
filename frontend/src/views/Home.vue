@@ -120,6 +120,7 @@
                 <strong>{{ getChatName(chat) }}</strong>
                 <span v-if="chat.chat_type === 'group'" class="group-badge">Группа</span>
                 <span v-if="chat.chat_type === 'bot'" class="bot-badge">Бот</span>
+                <span v-if="isOtherMemberVerified(chat)" class="verified-badge-small">✓</span>
                 <span v-if="isOtherMemberUltra(chat)" class="ultra-badge">⚡</span>
               </div>
               <span v-if="chat.last_message" class="last-message">
@@ -391,6 +392,12 @@ export default {
       return otherMember?.user?.is_ultra || false
     }
 
+    const isOtherMemberVerified = (chat) => {
+      if (chat.chat_type === 'group' || !chat.members) return false
+      const otherMember = chat.members.find(m => m.user_id !== (currentUser.value ? currentUser.value.id : null))
+      return otherMember?.user?.is_verified || false
+    }
+
     const formatTime = (dateString) => {
       const date = new Date(dateString)
       const now = new Date()
@@ -578,6 +585,7 @@ export default {
       isUserOnline,
       getOtherMemberUserId,
       isOtherMemberUltra,
+      isOtherMemberVerified,
     }
   },
 }
@@ -939,6 +947,20 @@ h2 {
   border-radius: 4px;
   font-weight: 600;
   margin-left: 0.5rem;
+}
+
+.verified-badge-small {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  background: #3b82f6;
+  color: white;
+  border-radius: 50%;
+  font-size: 0.6rem;
+  font-weight: bold;
+  margin-left: 0.25rem;
 }
 
 .last-message {

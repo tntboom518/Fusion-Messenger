@@ -266,6 +266,9 @@ def read_user_me(current_user: CurrentUser) -> Any:
     """
     Get current user.
     """
+    # Superusers are always verified
+    if current_user.is_superuser:
+        current_user.is_verified = True
     return current_user
 
 
@@ -852,3 +855,53 @@ def admin_add_balance(
     session.refresh(user)
 
     return user
+
+
+@router.post("/{user_id}/verify", dependencies=[Depends(get_current_active_superuser)])
+def verify_user(
+    user_id: int,
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> Any:
+    """Верифицировать пользователя (админ)"""
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.is_verified = True
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    return {
+        "id": user.id,
+        "email": user.email,
+        "full_name": user.full_name,
+        "is_verified": user.is_verified,
+    }
+
+
+@router.post(
+    "/{user_id}/unverify", dependencies=[Depends(get_current_active_superuser)]
+)
+def unverify_user(
+    user_id: int,
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> Any:
+    """Убрать верификацию пользователя (админ)"""
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.is_verified = False
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    return {
+        "id": user.id,
+        "email": user.email,
+        "full_name": user.full_name,
+        "is_verified": user.is_verified,
+    }

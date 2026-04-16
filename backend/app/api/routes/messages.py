@@ -77,6 +77,17 @@ async def create_message(
                 avatar_url=sender.avatar_url,
                 is_active=sender.is_active,
                 is_superuser=sender.is_superuser,
+                balance=sender.balance,
+                is_banned=sender.is_banned,
+                ban_reason=sender.ban_reason,
+                timezone=sender.timezone,
+                last_seen=sender.last_seen,
+                is_ultra=sender.is_ultra,
+                ultra_expires_at=sender.ultra_expires_at,
+                ultra_badge=sender.ultra_badge,
+                ultra_profile_color=getattr(sender, "ultra_profile_color", None),
+                ultra_avatar_style=getattr(sender, "ultra_avatar_style", None),
+                is_verified=getattr(sender, "is_verified", False),
             )
         else:
             sender_public = None
@@ -172,6 +183,17 @@ def update_message(
             avatar_url=sender.avatar_url,
             is_active=sender.is_active,
             is_superuser=sender.is_superuser,
+            balance=sender.balance,
+            is_banned=sender.is_banned,
+            ban_reason=sender.ban_reason,
+            timezone=sender.timezone,
+            last_seen=sender.last_seen,
+            is_ultra=sender.is_ultra,
+            ultra_expires_at=sender.ultra_expires_at,
+            ultra_badge=sender.ultra_badge,
+            ultra_profile_color=getattr(sender, "ultra_profile_color", None),
+            ultra_avatar_style=getattr(sender, "ultra_avatar_style", None),
+            is_verified=getattr(sender, "is_verified", False),
         )
     else:
         sender_public = None

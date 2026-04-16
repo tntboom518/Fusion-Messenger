@@ -74,6 +74,13 @@
               </button>
               <button 
                 v-if="!user.is_superuser"
+                @click="user.is_verified ? unverifyUser(user.id) : verifyUser(user.id)"
+                :class="['verify-btn', { active: user.is_verified }]"
+              >
+                {{ user.is_verified ? '✓ Убрать верификацию' : '✓ Верифицировать' }}
+              </button>
+              <button 
+                v-if="!user.is_superuser"
                 @click="deleteUser(user)"
                 class="delete-btn"
               >
@@ -481,6 +488,28 @@ export default {
       }
     }
 
+    const verifyUser = async (userId) => {
+      try {
+        await usersAPI.verifyUser(userId)
+        await loadUsers()
+        alert('Пользователь верифицирован')
+      } catch (error) {
+        console.error('Error verifying user:', error)
+        alert('Ошибка верификации')
+      }
+    }
+
+    const unverifyUser = async (userId) => {
+      try {
+        await usersAPI.unverifyUser(userId)
+        await loadUsers()
+        alert('Верификация убрана')
+      } catch (error) {
+        console.error('Error unverifying user:', error)
+        alert('Ошибка удаления верификации')
+      }
+    }
+
     const showAddBalanceModal = (user) => {
       balanceTarget.value = user
       addBalanceAmount.value = 0
@@ -691,6 +720,8 @@ export default {
       deleteUser,
       grantUltra,
       revokeUltra,
+      verifyUser,
+      unverifyUser,
       showAddBalanceModal,
       confirmAddBalance,
       showAddBalanceDialog,
@@ -834,7 +865,7 @@ export default {
   gap: 0.5rem;
 }
 
-.ban-btn, .unban-btn, .ultra-btn, .delete-btn {
+.ban-btn, .unban-btn, .ultra-btn, .verify-btn, .delete-btn {
   padding: 0.375rem 0.75rem;
   border: none;
   border-radius: 6px;
@@ -874,6 +905,20 @@ export default {
 .ultra-btn.active {
   background: rgba(148, 163, 184, 0.3);
   color: var(--text-primary);
+}
+
+.verify-btn {
+  background: rgba(59, 130, 246, 0.2);
+  color: #3b82f6;
+}
+
+.verify-btn:hover {
+  background: rgba(59, 130, 246, 0.3);
+}
+
+.verify-btn.active {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
 }
 
 .delete-btn {

@@ -57,6 +57,9 @@ class User(UserBase, table=True):
         default=None, sa_column=Column(DateTime, nullable=True)
     )
     ultra_badge: str | None = Field(default=None, max_length=50)  # Кастомный бейдж
+    ultra_profile_color: str | None = Field(default=None, max_length=50)  # Цвет ника
+    ultra_avatar_style: str | None = Field(default=None, max_length=50)  # Стиль аватара
+    is_verified: bool = Field(default=False)  # Верификация
     chat_members: list["ChatMember"] = Relationship(
         back_populates="user", cascade_delete=True
     )
@@ -82,6 +85,9 @@ class UserPublic(UserBase):
     is_ultra: bool = False
     ultra_expires_at: datetime | None = None
     ultra_badge: str | None = None
+    ultra_profile_color: str | None = None
+    ultra_avatar_style: str | None = None
+    is_verified: bool = False
 
 
 class UserAdminPublic(UserBase):

@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from pydantic import BaseModel
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
@@ -144,6 +145,52 @@ def set_badge(
     session.commit()
 
     return {"badge": user.ultra_badge}
+
+
+class SetProfileStyle(BaseModel):
+    profile_color: str | None = None
+    avatar_style: str | None = None
+
+
+@router.post("/profile-style")
+def set_profile_style(
+    style_data: SetProfileStyle,
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> dict:
+    """Сохранить стиль профиля (цвет ника, стиль аватара)"""
+    user = session.get(User, current_user.id)
+
+    if not user.is_ultra:
+        raise HTTPException(
+            status_code=403, detail="Нужен Ultra для изменения стиля профиля"
+        )
+
+    if style_data.profile_color is not None:
+        user.ultra_profile_color = style_data.profile_color
+    if style_data.avatar_style is not None:
+        user.ultra_avatar_style = style_data.avatar_style
+
+    session.commit()
+
+    return {
+        "ultra_profile_color": user.ultra_profile_color,
+        "ultra_avatar_style": user.ultra_avatar_style,
+    }
+
+
+@router.get("/profile-style")
+def get_profile_style(
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> dict:
+    """Получить стиль профиля"""
+    user = session.get(User, current_user.id)
+
+    return {
+        "ultra_profile_color": getattr(user, "ultra_profile_color", None),
+        "ultra_avatar_style": getattr(user, "ultra_avatar_style", None),
+    }
 
 
 @router.post("/grant")

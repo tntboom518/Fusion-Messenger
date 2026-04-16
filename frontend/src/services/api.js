@@ -129,6 +129,16 @@ export const usersAPI = {
     const response = await api.post(`/users/${userId}/add-balance`, { amount })
     return response.data
   },
+
+  verifyUser: async (userId) => {
+    const response = await api.post(`/users/${userId}/verify`)
+    return response.data
+  },
+  
+  unverifyUser: async (userId) => {
+    const response = await api.post(`/users/${userId}/unverify`)
+    return response.data
+  },
 }
 
 export const chatsAPI = {
@@ -422,6 +432,19 @@ export const ultraAPI = {
 
   setBadge: async (badgeId) => {
     const response = await api.post('/ultra/badge', { badge_id: badgeId })
+    return response.data
+  },
+
+  setProfileStyle: async (profileColor, avatarStyle) => {
+    const response = await api.post('/ultra/profile-style', { 
+      profile_color: profileColor, 
+      avatar_style: avatarStyle 
+    })
+    return response.data
+  },
+
+  getProfileStyle: async () => {
+    const response = await api.get('/ultra/profile-style')
     return response.data
   },
 

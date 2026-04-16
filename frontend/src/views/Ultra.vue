@@ -212,14 +212,24 @@ export default {
       }
     }
 
-    const setProfileColor = (color) => {
+    const setProfileColor = async (color) => {
       profileColor.value = color
       localStorage.setItem('ultra_profile_color', color)
+      try {
+        await ultraAPI.setProfileStyle(color, avatarStyle.value)
+      } catch (e) {
+        console.error('Error saving profile color:', e)
+      }
     }
 
-    const setAvatarStyle = (style) => {
+    const setAvatarStyle = async (style) => {
       avatarStyle.value = style
       localStorage.setItem('ultra_avatar_style', style)
+      try {
+        await ultraAPI.setProfileStyle(profileColor.value, style)
+      } catch (e) {
+        console.error('Error saving avatar style:', e)
+      }
     }
 
     const getCurrentBadge = () => {

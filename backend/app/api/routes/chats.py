@@ -80,6 +80,9 @@ def _format_chat_public(
                         is_ultra=getattr(user, "is_ultra", False),
                         ultra_expires_at=getattr(user, "ultra_expires_at", None),
                         ultra_badge=getattr(user, "ultra_badge", None),
+                        ultra_profile_color=getattr(user, "ultra_profile_color", None),
+                        ultra_avatar_style=getattr(user, "ultra_avatar_style", None),
+                        is_verified=getattr(user, "is_verified", False),
                     ),
                     joined_at=member.joined_at,
                     last_read_at=member.last_read_at,
@@ -107,6 +110,9 @@ def _format_chat_public(
                 is_ultra=getattr(sender_user, "is_ultra", False),
                 ultra_expires_at=getattr(sender_user, "ultra_expires_at", None),
                 ultra_badge=getattr(sender_user, "ultra_badge", None),
+                ultra_profile_color=getattr(sender_user, "ultra_profile_color", None),
+                ultra_avatar_style=getattr(sender_user, "ultra_avatar_style", None),
+                is_verified=getattr(sender_user, "is_verified", False),
             )
 
     # Get bot info for bot chats
@@ -323,6 +329,9 @@ def get_messages(
                 is_ultra=getattr(sender, "is_ultra", False),
                 ultra_expires_at=getattr(sender, "ultra_expires_at", None),
                 ultra_badge=getattr(sender, "ultra_badge", None),
+                ultra_profile_color=getattr(sender, "ultra_profile_color", None),
+                ultra_avatar_style=getattr(sender, "ultra_avatar_style", None),
+                is_verified=getattr(sender, "is_verified", False),
             )
         else:
             sender_public = None
