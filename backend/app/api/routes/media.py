@@ -15,6 +15,7 @@ from sqlmodel import Session, func, select
 from app import crud
 from app.api.deps import CurrentUser, SessionDep
 from app.api.routes.websocket import manager
+from app.api.routes.season_helpers import update_user_task_progress
 from app.core.config import settings
 from app.models import (
     ChatMessage,

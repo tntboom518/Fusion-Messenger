@@ -82,6 +82,7 @@ def create_initial_nfts():
                         price=100,
                         rarity="common",
                         is_active=True,
+                        image_url="https://via.placeholder.com/150/4a5568/ffffff?text=Avatar",
                     ),
                     NFTItem(
                         name="Неоновый огонь",
@@ -89,6 +90,7 @@ def create_initial_nfts():
                         price=500,
                         rarity="rare",
                         is_active=True,
+                        image_url="https://via.placeholder.com/150/f97316/ffffff?text=Fire",
                     ),
                     NFTItem(
                         name="Космический путешественник",
@@ -96,6 +98,7 @@ def create_initial_nfts():
                         price=1500,
                         rarity="epic",
                         is_active=True,
+                        image_url="https://via.placeholder.com/150/6366f1/ffffff?text=Space",
                     ),
                     NFTItem(
                         name="Легендарный дракон",
@@ -103,6 +106,7 @@ def create_initial_nfts():
                         price=5000,
                         rarity="legendary",
                         is_active=True,
+                        image_url="https://via.placeholder.com/150/dc2626/ffffff?text=Dragon",
                     ),
                     NFTItem(
                         name="Кристальное сердце",
@@ -110,6 +114,7 @@ def create_initial_nfts():
                         price=800,
                         rarity="rare",
                         is_active=True,
+                        image_url="https://via.placeholder.com/150/ec4899/ffffff?text=Heart",
                     ),
                     NFTItem(
                         name="Галактический страж",
@@ -117,6 +122,7 @@ def create_initial_nfts():
                         price=3000,
                         rarity="epic",
                         is_active=True,
+                        image_url="https://via.placeholder.com/150/0ea5e9/ffffff?text=Guardian",
                     ),
                 ]
                 for item in items:
@@ -132,7 +138,6 @@ def create_initial_nfts():
 # Создаем таблицы и начального пользователя при импорте модуля
 create_tables()
 create_initial_user()
-create_initial_nfts()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,

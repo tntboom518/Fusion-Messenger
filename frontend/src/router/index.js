@@ -38,6 +38,42 @@ const routes = [
     component: () => import('../views/Admin.vue'),
     meta: { requiresAuth: true, requiresSuperuser: true },
   },
+  {
+    path: '/bots',
+    name: 'Bots',
+    component: () => import('../views/Bots.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/forum',
+    name: 'Forum',
+    component: () => import('../views/Forum.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/forum/post/:postId',
+    name: 'ForumPost',
+    component: () => import('../views/ForumPost.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/channels',
+    name: 'Channels',
+    component: () => import('../views/Channels.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/channels/:channelId',
+    name: 'ChannelView',
+    component: () => import('../views/ChannelView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/ultra',
+    name: 'Ultra',
+    component: () => import('../views/Ultra.vue'),
+    meta: { requiresAuth: true },
+  },
 ]
 
 const router = createRouter({

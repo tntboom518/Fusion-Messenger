@@ -2,11 +2,14 @@ import asyncio
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Body
+from pydantic import BaseModel
 
 from app import crud
 from app.api.deps import CurrentUser, SessionDep
 from app.api.routes.websocket import manager
+from app.api.routes.season_helpers import update_user_task_progress
+from app.gigachat_client import gigachat_client
 from app.models import (
     ChatMessage,
     ChatMessageCreate,
@@ -15,7 +18,9 @@ from app.models import (
     Message,
     User,
     UserPublic,
+    BotExecutionResult,
 )
+
 
 router = APIRouter(prefix="/messages", tags=["messages"])
 logger = logging.getLogger(__name__)
@@ -52,6 +57,9 @@ async def create_message(
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
 
+    # Check if it's a bot chat
+    is_bot_chat = chat.chat_type == "bot" and chat.bot_id is not None
+
     try:
         message = crud.create_message(
             session=session,
@@ -85,6 +93,50 @@ async def create_message(
 
         # Транслируем сообщение всем участникам чата через WebSocket (не ждем завершения)
         asyncio.create_task(broadcast_message_to_chat(message_public, chat_id))
+
+        # Handle bot response for bot chats
+        if is_bot_chat:
+            from app.bot_executor import execute_bot
+            from app.models import ChatBot
+
+            bot = session.get(ChatBot, chat.bot_id)
+            if bot and bot.is_active:
+                user_context = {
+                    "id": current_user.id,
+                    "full_name": current_user.full_name or current_user.email,
+                }
+                result = execute_bot(
+                    bot.code, bot.language, message_in.content, user_context
+                )
+
+                # Create bot's response as a message
+                bot_response = crud.create_message(
+                    session=session,
+                    chat_id=chat_id,
+                    sender_id=0,  # System user ID for bot
+                    content=result.get("response", ""),
+                )
+                session.commit()  # Commit immediately
+
+                # Broadcast bot response
+                bot_message_public = ChatMessagePublic(
+                    id=bot_response.id,
+                    chat_id=bot_response.chat_id,
+                    sender_id=0,
+                    sender=None,
+                    content=bot_response.content,
+                    created_at=bot_response.created_at,
+                    edited_at=bot_response.edited_at,
+                )
+                asyncio.create_task(
+                    broadcast_message_to_chat(bot_message_public, chat_id)
+                )
+
+        # Обновляем прогресс сезона
+        try:
+            update_user_task_progress(session, current_user.id, "messages")
+        except Exception as e:
+            logger.error(f"Error updating season progress: {e}")
 
         return message_public
     except ValueError as e:
@@ -155,3 +207,48 @@ def delete_message(
         )
 
     return Message(message="Message deleted successfully")
+
+
+@router.post("/{chat_id}/read")
+async def mark_messages_as_read(
+    chat_id: int,
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> Any:
+    """Отметить сообщения как прочитанные"""
+    from sqlmodel import select
+    from app.models import ChatMessage
+
+    chat = crud.get_chat(session=session, chat_id=chat_id, user_id=current_user.id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    messages = session.exec(
+        select(ChatMessage).where(
+            ChatMessage.chat_id == chat_id,
+            ChatMessage.sender_id != current_user.id,
+            ChatMessage.is_read == False,
+        )
+    ).all()
+
+    for message in messages:
+        message.is_read = True
+        session.add(message)
+    session.commit()
+
+    return {"status": "ok", "count": len(messages)}
+
+
+class AIChatRequest(BaseModel):
+    message: str
+
+
+@router.post("/ai/chat")
+async def chat_with_ai(
+    request: AIChatRequest,
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> BotExecutionResult:
+    """Отправить сообщение GigaChat AI"""
+    response = gigachat_client.chat(request.message)
+    return BotExecutionResult(response=response)

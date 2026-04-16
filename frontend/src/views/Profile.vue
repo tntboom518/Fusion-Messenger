@@ -64,8 +64,8 @@
             <span class="balance-label">шекелей</span>
           </div>
           <div class="balance-actions">
-            <button @click="addShekels" class="add-balance-btn">🎁 Получить 1000</button>
             <button @click="showTransferModal = true" class="transfer-btn">Перевести</button>
+            <router-link to="/ultra" class="ultra-link">⚡ Fusion Ultra</router-link>
           </div>
         </div>
 
@@ -231,19 +231,6 @@ export default {
         router.push('/login')
       } finally {
         loading.value = false
-      }
-    }
-
-    const addShekels = async () => {
-      try {
-        const response = await axios.post(`${API_BASE_URL}/users/me/add-balance`, { amount: 1000 }, {
-          headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` }
-        })
-        user.value = response.data
-        alert('+1000 шекелей!')
-      } catch (error) {
-        console.error('Error adding shekels:', error)
-        alert('Ошибка')
       }
     }
 
@@ -477,7 +464,6 @@ export default {
       triggerAvatarUpload,
       handleAvatarChange,
       handleAvatarDelete,
-      addShekels,
       doTransfer,
       startEditName,
       cancelEditName,
@@ -485,6 +471,7 @@ export default {
       handleDelete,
       goBack,
       loadUserNFTs,
+      loadShopItems,
       buyNFT,
       formatDate,
     }
@@ -679,6 +666,7 @@ export default {
 .balance-actions {
   display: flex;
   gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .transfer-btn {
@@ -693,6 +681,21 @@ export default {
 
 .transfer-btn:hover {
   background: var(--primary-purple-light);
+}
+
+.ultra-link {
+  padding: 0.5rem 1rem;
+  background: linear-gradient(135deg, #ffd700 0%, #ff8c00 100%);
+  color: #000;
+  border-radius: 6px;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.9rem;
+  transition: transform 0.2s;
+}
+
+.ultra-link:hover {
+  transform: scale(1.05);
 }
 
 .add-balance-btn {

@@ -4,3 +4,10 @@ node_modules/
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+.pyc
+__pycache__
+*.db
+.env
+check_braces.py
+check_try.py
+test_import.py

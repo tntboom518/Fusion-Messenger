@@ -162,14 +162,19 @@ def create_message(
 ) -> ChatMessage:
     """Создать сообщение в чате"""
     # Проверяем, что отправитель является участником чата
-    member = session.exec(
-        select(ChatMember).where(
-            ChatMember.chat_id == chat_id, ChatMember.user_id == sender_id
-        )
-    ).first()
+    # Для ботов пропускаем проверку
+    chat = session.get(Chat, chat_id)
+    is_bot_chat = chat and chat.chat_type == "bot"
 
-    if not member:
-        raise ValueError("User is not a member of this chat")
+    if not is_bot_chat:
+        member = session.exec(
+            select(ChatMember).where(
+                ChatMember.chat_id == chat_id, ChatMember.user_id == sender_id
+            )
+        ).first()
+
+        if not member:
+            raise ValueError("User is not a member of this chat")
 
     message = ChatMessage(
         chat_id=chat_id,

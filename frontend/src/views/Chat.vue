@@ -16,6 +16,9 @@
         />
       </div>
       <div class="header-actions">
+        <button @click="startCall" class="call-btn" title="Позвонить">
+          📞
+        </button>
         <button
           v-if="isGroupChat"
           @click="showGroupMembers = true"
@@ -51,16 +54,26 @@
           :key="message.id"
           :class="['message', { 'own-message': message.sender_id === currentUserId }]"
         >
-          <img 
-            v-if="message.sender?.avatar_url" 
-            :src="message.sender.avatar_url" 
-            class="message-avatar" 
-          />
+          <div class="avatar-wrapper">
+            <img 
+              v-if="message.sender?.avatar_url" 
+              :src="message.sender.avatar_url" 
+              :class="['message-avatar', getAvatarClass(message)]"
+            />
+            <div v-else :class="['message-avatar-placeholder', getAvatarClass(message)]">
+              {{ getSenderInitials(message) }}
+            </div>
+            <span v-if="message.sender_id !== currentUserId && isUserOnline(message.sender_id)" class="online-indicator"></span>
+          </div>
           <div class="message-body">
             <div class="message-header">
-              <strong>{{ getSenderName(message) }}</strong>
+              <strong :style="getSenderStyle(message)">{{ getSenderName(message) }}</strong>
+              <span v-if="isSenderUltra(message)" class="ultra-badge-small">⚡</span>
               <div class="message-actions">
                 <span class="message-time">{{ formatTime(message.created_at) }}</span>
+                <span v-if="message.sender_id === currentUserId" class="read-status">
+                  {{ message.is_read ? '✓✓' : '✓' }}
+                </span>
                 <button 
                   v-if="message.sender_id === currentUserId"
                   @click.stop="deleteMessage(message)"
@@ -97,6 +110,37 @@
         </div>
       </div>
 
+      <div v-if="typingUser" class="typing-indicator">
+        {{ typingUser }} печатает
+      </div>
+
+      <!-- Incoming Call Modal -->
+      <div v-if="incomingCall" class="call-modal incoming-call">
+        <div class="call-content">
+          <div class="call-icon">📞</div>
+          <div class="call-status">Входящий звонок</div>
+          <div class="call-user">{{ incomingCall.from_user_name || 'Пользователь' }}</div>
+          <div class="call-actions">
+            <button @click="acceptCall" class="accept-btn">Принять</button>
+            <button @click="declineCall" class="decline-btn">Отклонить</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Active Call Modal -->
+      <div v-else-if="inCall" class="call-modal">
+        <div class="call-info">
+          <div class="call-status">
+            <span v-if="callStatus === 'calling'">Звоним...</span>
+            <span v-else-if="callStatus === 'connected'">Соединено</span>
+            <span v-else>Звонок</span>
+          </div>
+          <div class="call-user">{{ remoteUser?.name || 'Пользователь' }}</div>
+        </div>
+        <button @click="endCall" class="end-call-btn">Завершить</button>
+        <audio ref="audioRef" autoplay></audio>
+      </div>
+
       <div class="input-container">
         <label class="attach-btn">
           <input
@@ -117,6 +161,9 @@
           @keyup.enter="sendMessage"
           @input="handleTyping"
         />
+        <button @click="sendToAI" class="ai-btn" title="Отправить ИИ">
+          ✨
+        </button>
         <button @click="sendMessage" :disabled="!newMessage.trim() && !selectedFile">
           Отправить
         </button>
@@ -124,6 +171,60 @@
       <div v-if="selectedFile" class="file-preview">
         <span class="file-name">{{ selectedFile.name }}</span>
         <button @click="clearFile" class="clear-file">×</button>
+      </div>
+    </div>
+
+    <!-- AI Modal -->
+    <div v-if="showAIModal" class="modal-overlay" @click.self="showAIModal = false">
+      <div class="modal-content ai-modal">
+        <div class="modal-header">
+          <h3>{{ aiMode === 'chat' ? 'Чат с ИИ' : 'Редактирование сообщения' }}</h3>
+          <button @click="showAIModal = false" class="close-btn">×</button>
+        </div>
+        
+        <div v-if="aiMode === 'edit'" class="ai-edit-mode">
+          <div class="form-group">
+            <label>Выбери шаблон:</label>
+            <div class="ai-templates">
+              <button 
+                v-for="tpl in aiTemplates" 
+                :key="tpl.id"
+                @click="selectTemplate(tpl)"
+                :class="['ai-template-btn', { active: aiEditPrompt === tpl.prompt }]"
+              >
+                {{ tpl.name }}
+              </button>
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label>Или введи свой запрос:</label>
+            <textarea 
+              v-model="aiEditPrompt" 
+              placeholder="Опиши как изменить сообщение..."
+              class="input"
+            ></textarea>
+          </div>
+          
+          <div class="form-group">
+            <label>Результат:</label>
+            <textarea 
+              v-model="newMessage" 
+              placeholder="Здесь появится отредактированное сообщение"
+              class="input"
+            ></textarea>
+          </div>
+          
+          <div class="modal-actions">
+            <button @click="showAIModal = false" class="btn-secondary">Отмена</button>
+            <button @click="applyAIEdit" class="btn-primary">Применить</button>
+          </div>
+        </div>
+        
+        <div v-else class="ai-chat-mode">
+          <p class="ai-hint">Напиши что хочешь спросить у ИИ</p>
+          <button @click="sendAIChat" class="btn-primary">Отправить вопрос</button>
+        </div>
       </div>
     </div>
 
@@ -250,10 +351,13 @@ export default {
     const newMessage = ref('')
     const chatName = ref('Чат')
     const currentUserId = ref(null)
+    const currentUser = ref(null)  // Для хранения полных данных пользователя
     const messagesContainer = ref(null)
     const ws = ref(null)
     const shouldAutoScroll = ref(true)
     const isGroupChat = ref(false)
+    const isBotChat = ref(false)
+    const currentBot = ref(null)
     const isAdmin = ref(false)
     const isEditingName = ref(false)
     const editedName = ref('')
@@ -268,6 +372,29 @@ export default {
     const fileInput = ref(null)
     const selectedFile = ref(null)
     const uploading = ref(false)
+    const onlineUsers = ref(new Set())
+    const typingUser = ref(null)
+    let typingTimeout = null
+    
+    // Call state
+    const inCall = ref(false)
+    const callStatus = ref('') // 'calling', 'ringing', 'connected', 'ended'
+    const remoteUser = ref(null)
+    const localStream = ref(null)
+    const peerConnection = ref(null)
+    const incomingCall = ref(null)
+    const audioRef = ref(null)
+
+    const isUserOnline = (userId) => onlineUsers.value.has(userId)
+
+    const getSenderInitials = (message) => {
+      if (message.sender_id === 0 && isBotChat.value) {
+        const botName = currentBot.value?.name || 'Бот'
+        return botName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+      }
+      const name = message.sender?.full_name || message.sender?.email || 'Пользователь'
+      return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+    }
 
     const loadChat = async () => {
       try {
@@ -275,6 +402,11 @@ export default {
         currentChat.value = chat
         chatName.value = getChatName(chat)
         isGroupChat.value = chat.chat_type === 'group'
+        isBotChat.value = chat.chat_type === 'bot'
+        
+        if (isBotChat.value && chat.bot) {
+          currentBot.value = chat.bot
+        }
         
         if (isGroupChat.value) {
           const myMember = chat.members?.find(m => m.user_id === currentUserId.value)
@@ -300,15 +432,13 @@ export default {
       try {
         const response = await chatsAPI.getMessages(chatId)
         messages.value = response.data || []
-        // Устанавливаем флаг автоматической прокрутки
+        await chatsAPI.markAsRead(chatId)
         shouldAutoScroll.value = true
       } catch (error) {
         console.error('Error loading messages:', error)
       } finally {
         loading.value = false
-        // Прокручиваем вниз после того, как loading станет false и DOM обновится
         await nextTick()
-        // Используем несколько попыток для надежной прокрутки
         setTimeout(() => {
           scrollToBottom(true)
         }, 100)
@@ -322,7 +452,61 @@ export default {
       if (message.sender_id === currentUserId.value) {
         return 'Вы'
       }
+      if (message.sender_id === 0 && isBotChat.value) {
+        return currentBot.value?.name || 'Бот'
+      }
       return message.sender?.full_name || message.sender?.email || 'Пользователь'
+    }
+
+    const isSenderUltra = (message) => {
+      if (message.sender_id === currentUserId.value) {
+        return currentUser.value?.is_ultra || false
+      }
+      return message.sender?.is_ultra || false
+    }
+
+    const getSenderStyle = (message) => {
+      const isUltra = message.sender_id === currentUserId.value 
+        ? (currentUser.value?.is_ultra || false)
+        : (message.sender?.is_ultra || false)
+      
+      if (!isUltra) return {}
+      
+      // Для своего профиля - свой цвет, для других - их цвет из localStorage
+      let color
+      if (message.sender_id === currentUserId.value) {
+        color = localStorage.getItem('ultra_profile_color')
+      } else {
+        // Попробуем получить цвет из sender данных или использовать общий
+        color = message.sender?.ultra_profile_color || localStorage.getItem('ultra_profile_color')
+      }
+      
+      if (!color) return {}
+      
+      if (color.includes('gradient')) {
+        return { 
+          background: color, 
+          WebkitBackgroundClip: 'text', 
+          WebkitTextFillColor: 'transparent',
+          backgroundClip: 'text'
+        }
+      }
+      return { color: color }
+    }
+
+    const getAvatarClass = (message) => {
+      const isUltra = message.sender_id === currentUserId.value 
+        ? (currentUser.value?.is_ultra || false)
+        : (message.sender?.is_ultra || false)
+      
+      if (!isUltra) return ''
+      
+      const style = localStorage.getItem('ultra_avatar_style') || 'default'
+      
+      if (style === 'gold') return 'avatar-gold'
+      if (style === 'border') return 'avatar-border'
+      if (style === 'shine') return 'avatar-shine'
+      return ''
     }
 
     const formatTime = (dateString) => {
@@ -449,6 +633,87 @@ export default {
         }
       }
     }
+    
+    const showAIModal = ref(false)
+    const aiEditText = ref('')
+    const aiEditPrompt = ref('')
+    const aiMode = ref('edit') // 'edit' or 'chat'
+    
+    const aiTemplates = [
+      { id: 'respectful', name: 'Уважительный', prompt: 'Перепиши это сообщение вежливо и уважительно, без изменения смысла' },
+      { id: 'youth', name: 'Молодёжный', prompt: 'Перепиши это сообщение на молодёжном сленге, сохраняя смысл' },
+      { id: 'caps', name: 'КАПС', prompt: 'Перепиши это сообщение БОЛЬШИМИ БУКВАМИ, сохраняя смысл' },
+      { id: 'short', name: 'Короткий', prompt: 'Сделай это сообщение короче, сохранив основной смысл' },
+      { id: 'long', name: 'Подробный', prompt: 'Расширь это сообщение, добавив больше деталей, но сохранив смысл' },
+      { id: 'emoji', name: 'С эмодзи', prompt: 'Добавь подходящие эмодзи в это сообщение, не меняя смысла' },
+      { id: 'grammar', name: 'Граммар наци', prompt: 'Исправь грамматику, орфографию и пунктуацию в этом сообщении, не меняя смысла' },
+    ]
+    
+    const selectTemplate = (template) => {
+      aiEditPrompt.value = template.prompt
+    }
+    
+    const sendToAI = async () => {
+      // Always show edit mode first
+      showAIModal.value = true
+      aiMode.value = 'edit'
+      aiEditText.value = newMessage.value.trim()
+      aiEditPrompt.value = ''
+    }
+    
+    const applyAIEdit = async () => {
+      const prompt = aiEditPrompt.value.trim()
+      const text = aiEditText.value.trim()
+      
+      if (!prompt || !text) return
+      
+      try {
+        const res = await messagesAPI.chatWithAI(`${prompt}: "${text}"`)
+        newMessage.value = res.response
+        showAIModal.value = false
+        aiEditText.value = ''
+        aiEditPrompt.value = ''
+      } catch (e) {
+        console.error('AI edit error:', e)
+        alert('Ошибка ИИ')
+      }
+    }
+    
+    const sendAIChat = async () => {
+      const text = newMessage.value.trim()
+      if (!text) return
+      
+      // Show user message in chat temporarily
+      const tempId = `temp-${Date.now()}`
+      messages.value.push({
+        id: tempId,
+        chat_id: chatId,
+        sender_id: currentUserId.value,
+        sender: { id: currentUserId.value, full_name: 'Вы' },
+        content: text,
+        created_at: new Date().toISOString(),
+        isTemp: true
+      })
+      newMessage.value = ''
+      scrollToBottom()
+      
+      try {
+        const res = await messagesAPI.chatWithAI(text)
+        // Add AI response
+        messages.value.push({
+          id: `ai-${Date.now()}`,
+          chat_id: chatId,
+          sender_id: 0,
+          sender: null,
+          content: res.response,
+          created_at: new Date().toISOString()
+        })
+        scrollToBottom()
+      } catch (e) {
+        console.error('AI error:', e)
+        alert('Ошибка ИИ')
+      }
+    }
 
     const handleTyping = () => {
       if (ws.value) {
@@ -483,52 +748,69 @@ export default {
         chatId,
         token,
         (data) => {
-          console.log('WebSocket callback received data:', data)
+          console.log('WebSocket message:', data)
+          
           if (data.type === 'new_message') {
             const message = data.message
-            console.log('Processing new message:', message)
-            
-            // Используем nextTick для обеспечения реактивности Vue
             nextTick(() => {
-              // Проверяем, нет ли уже такого сообщения по ID (чтобы избежать дубликатов)
               const existingIndex = messages.value.findIndex(m => m.id === message.id)
               if (existingIndex !== -1) {
-                // Сообщение уже есть, обновляем его
-                console.log('Updating existing message at index:', existingIndex)
-                // Создаем новый массив для правильного обновления реактивности Vue
                 const newMessages = [...messages.value]
                 newMessages[existingIndex] = message
                 messages.value = newMessages
               } else {
-                // Ищем временное сообщение с таким же содержимым и отправителем
-                // Проверяем, что это наше сообщение (от нас же)
                 const isOurMessage = message.sender_id === currentUserId.value
                 const tempIndex = messages.value.findIndex(
-                  m => m.isTemp && 
-                       m.content === message.content && 
-                       m.sender_id === message.sender_id &&
-                       isOurMessage // Только для наших сообщений
+                  m => m.isTemp && m.content === message.content && m.sender_id === message.sender_id && isOurMessage
                 )
-                
                 if (tempIndex !== -1) {
-                  // Заменяем временное сообщение на реальное
-                  console.log('Replacing temp message at index:', tempIndex)
-                  // Создаем новый массив для правильного обновления реактивности Vue
                   const newMessages = [...messages.value]
                   newMessages[tempIndex] = message
                   messages.value = newMessages
                 } else {
-                  // Это новое сообщение от другого пользователя или наше, но без временного
-                  console.log('Adding new message', isOurMessage ? 'from us (no temp found)' : 'from other user')
-                  // Создаем новый массив для принудительного обновления реактивности
                   messages.value = [...messages.value, message]
                 }
               }
-              // Прокручиваем вниз после обновления сообщений
-            scrollToBottom()
+              scrollToBottom()
             })
-          } else {
-            console.log('Received WebSocket message with type:', data.type)
+          } else if (data.type === 'user_online') {
+            onlineUsers.value.add(data.user_id)
+          } else if (data.type === 'user_offline') {
+            onlineUsers.value.delete(data.user_id)
+          } else if (data.type === 'typing') {
+            if (data.user_id !== currentUserId.value) {
+              typingUser.value = data.user_name || 'Пользователь'
+              if (typingTimeout) clearTimeout(typingTimeout)
+              typingTimeout = setTimeout(() => {
+                typingUser.value = null
+              }, 3000)
+            }
+          } else if (data.type === 'new_message') {
+            const msg = data.message
+            if (!messages.value.find(m => m.id === msg.id)) {
+              messages.value = [...messages.value, msg]
+              scrollToBottom()
+            }
+          } else if (data.type === 'call_offer') {
+            // Only process if this call is for us
+            if (data.target_user_id === currentUserId.value) {
+              handleIncomingCall(data)
+            }
+          } else if (data.type === 'call_answer') {
+            // Only process if this answer is for us
+            if (data.target_user_id === currentUserId.value) {
+              handleCallAnswer(data)
+            }
+          } else if (data.type === 'call_ice') {
+            // Only process if this ICE is for us
+            if (data.target_user_id === currentUserId.value) {
+              handleRemoteIce(data)
+            }
+          } else if (data.type === 'call_end') {
+            // Only process if this end is for us
+            if (data.target_user_id === currentUserId.value) {
+              endCall()
+            }
           }
         },
         (error) => {
@@ -537,6 +819,243 @@ export default {
       )
 
       ws.value.connect()
+    }
+
+    // Call functions
+    const getOtherUserId = () => {
+      if (!currentChat.value || isGroupChat.value) return null
+      const other = currentChat.value.members?.find(m => m.user_id !== currentUserId.value)
+      return other?.user_id || null
+    }
+
+    const startCall = async () => {
+      const targetUserId = getOtherUserId()
+      if (!targetUserId) {
+        alert('Звонки доступны только в личных чатах')
+        return
+      }
+
+      if (!ws.value || !ws.value.ws || ws.value.ws.readyState !== WebSocket.OPEN) {
+        alert('Подключение не установлено. Попробуйте позже.')
+        return
+      }
+
+      try {
+        localStream.value = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+        
+        peerConnection.value = new RTCPeerConnection({
+          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        })
+
+        localStream.value.getTracks().forEach(track => {
+          peerConnection.value.addTrack(track, localStream.value)
+        })
+
+        peerConnection.value.ontrack = (event) => {
+          const audioEl = audioRef.value
+          if (audioEl && event.streams[0]) {
+            audioEl.srcObject = event.streams[0]
+          }
+        }
+
+        peerConnection.value.onicecandidate = (event) => {
+          if (event.candidate && ws.value?.ws) {
+            ws.value.ws.send(JSON.stringify({
+              type: 'call_ice',
+              target_user_id: targetUserId,
+              candidate: event.candidate
+            }))
+          }
+        }
+
+        const offer = await peerConnection.value.createOffer()
+        await peerConnection.value.setLocalDescription(offer)
+
+        inCall.value = true
+        callStatus.value = 'calling'
+        remoteUser.value = { id: targetUserId }
+
+        ws.value.ws.send(JSON.stringify({
+          type: 'call_offer',
+          target_user_id: targetUserId,
+          chat_id: chatId,
+          sdp: peerConnection.value.localDescription
+        }))
+
+      } catch (error) {
+        console.error('Error starting call:', error)
+        alert('Не удалось начать звонок: ' + error.message)
+        endCall()
+      }
+    }
+
+    const handleIncomingCall = (data) => {
+      console.log('Incoming call:', data)
+      incomingCall.value = data
+      // Play ringtone
+      const ringtone = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2teleR4HLp3W6p97IRc2iNLrsYsdHDiMxemmVB8NNY3P6bJOHB08jMTrr1IcHD+L0OqxUB0fP4rP6bFSHSBCh87rsFEcIEEEAtLqsFAdIEGFAtLqsFAdIEEAAAAAA==')
+      ringtone.loop = true
+      ringtone.volume = 0.5
+      ringtone.play().catch(() => {})
+      incomingCall.value.ringtone = ringtone
+    }
+
+    const acceptCall = async () => {
+      const data = incomingCall.value
+      if (data.ringtone) {
+        data.ringtone.pause()
+        data.ringtone = null
+      }
+      incomingCall.value = null
+
+      try {
+        localStream.value = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+        
+        peerConnection.value = new RTCPeerConnection({
+          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        })
+
+        localStream.value.getTracks().forEach(track => {
+          peerConnection.value.addTrack(track, localStream.value)
+        })
+
+        peerConnection.value.ontrack = (event) => {
+          const audioEl = audioRef.value
+          if (audioEl && event.streams[0]) {
+            audioEl.srcObject = event.streams[0]
+          }
+        }
+
+        peerConnection.value.onicecandidate = (event) => {
+          if (event.candidate && ws.value?.ws) {
+            ws.value.ws.send(JSON.stringify({
+              type: 'call_ice',
+              target_user_id: data.from_user_id,
+              candidate: event.candidate
+            }))
+          }
+        }
+
+        await peerConnection.value.setRemoteDescription(new RTCSessionDescription(data.sdp))
+        const answer = await peerConnection.value.createAnswer()
+        await peerConnection.value.setLocalDescription(answer)
+
+        inCall.value = true
+        callStatus.value = 'connected'
+        remoteUser.value = { id: data.from_user_id, name: data.from_user_name }
+
+        ws.value.ws.send(JSON.stringify({
+          type: 'call_answer',
+          target_user_id: data.from_user_id,
+          accepted: true,
+          sdp: peerConnection.value.localDescription
+        }))
+      } catch (error) {
+        console.error('Error accepting call:', error)
+        endCall()
+      }
+    }
+
+    const declineCall = () => {
+      const data = incomingCall.value
+      if (data) {
+        if (data.ringtone) {
+          data.ringtone.pause()
+          data.ringtone = null
+        }
+        if (ws.value?.ws) {
+          ws.value.ws.send(JSON.stringify({
+            type: 'call_answer',
+            target_user_id: data.from_user_id,
+            accepted: false
+          }))
+        }
+      }
+      incomingCall.value = null
+    }
+
+    const handleCallAnswer = async (data) => {
+      console.log('Call answer received:', data)
+      if (!peerConnection.value) {
+        console.log('No peer connection, initiating answerer side')
+        try {
+          localStream.value = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+          
+          peerConnection.value = new RTCPeerConnection({
+            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+          })
+          
+          localStream.value.getTracks().forEach(track => {
+            peerConnection.value.addTrack(track, localStream.value)
+          })
+          
+          peerConnection.value.ontrack = (event) => {
+            const audioEl = audioRef.value
+            if (audioEl && event.streams[0]) {
+              audioEl.srcObject = event.streams[0]
+            }
+          }
+          
+          peerConnection.value.onicecandidate = (event) => {
+            if (event.candidate && ws.value?.ws) {
+              ws.value.ws.send(JSON.stringify({
+                type: 'call_ice',
+                target_user_id: data.from_user_id,
+                candidate: event.candidate
+              }))
+            }
+          }
+        } catch (err) {
+          console.error('Error setting up peer connection:', err)
+          return
+        }
+      }
+
+      try {
+        if (data.accepted && data.sdp) {
+          await peerConnection.value.setRemoteDescription(new RTCSessionDescription(data.sdp))
+          callStatus.value = 'connected'
+        } else {
+          alert('Звонок отклонён')
+          endCall()
+        }
+      } catch (error) {
+        console.error('Error handling call answer:', error)
+        endCall()
+      }
+    }
+
+    const handleRemoteIce = async (data) => {
+      if (!peerConnection.value) return
+      try {
+        await peerConnection.value.addIceCandidate(new RTCIceCandidate(data.candidate))
+      } catch (error) {
+        console.error('Error adding ICE candidate:', error)
+      }
+    }
+
+    const endCall = () => {
+      if (localStream.value) {
+        localStream.value.getTracks().forEach(track => track.stop())
+        localStream.value = null
+      }
+      if (peerConnection.value) {
+        peerConnection.value.close()
+        peerConnection.value = null
+      }
+      
+      const targetId = remoteUser.value?.id || getOtherUserId()
+      if (targetId && ws.value?.ws) {
+        ws.value.ws.send(JSON.stringify({
+          type: 'call_end',
+          target_user_id: targetId
+        }))
+      }
+
+      inCall.value = false
+      callStatus.value = ''
+      remoteUser.value = null
+      incomingCall.value = null
     }
 
     const handleMemberSearch = async () => {
@@ -696,9 +1215,27 @@ export default {
       try {
         const user = await authAPI.getCurrentUser()
         currentUserId.value = user.id
+        currentUser.value = user  // Сохраняем полные данные пользователя
         await loadChat()
         await loadMessages()
         setupWebSocket()
+        
+        // Polling for new messages (fallback if WebSocket fails)
+        setInterval(async () => {
+          if (!ws.value || !ws.value.ws || ws.value.ws.readyState !== WebSocket.OPEN) {
+            try {
+              const response = await chatsAPI.getMessages(chatId)
+              const newMessages = response.data || []
+              const lastMsgId = messages.value.length > 0 ? Math.max(...messages.value.map(m => m.id)) : 0
+              const unread = newMessages.filter(m => m.id > lastMsgId)
+              if (unread.length > 0) {
+                messages.value = [...messages.value, ...unread]
+                scrollToBottom()
+              }
+            } catch (e) {}
+          }
+        }, 3000)
+        
         // Дополнительная прокрутка после полной загрузки компонента
         await nextTick()
         setTimeout(() => {
@@ -714,6 +1251,8 @@ export default {
       if (ws.value) {
         ws.value.disconnect()
       }
+      if (typingTimeout) clearTimeout(typingTimeout)
+      endCall()
     })
 
     watch(() => route.params.chatId, async (newChatId) => {
@@ -747,8 +1286,11 @@ export default {
       newMessage,
       chatName,
       currentUserId,
+      currentUser,
       messagesContainer,
       isGroupChat,
+      isBotChat,
+      currentBot,
       isAdmin,
       isEditingName,
       editedName,
@@ -766,10 +1308,15 @@ export default {
       sendMessage,
       handleTyping,
       getSenderName,
+      getSenderInitials,
+      getSenderStyle,
+      isSenderUltra,
+      getAvatarClass,
       formatTime,
       handleFileSelect,
       clearFile,
       handleMemberSearch,
+      setupWebSocket,
       toggleAddMember,
       isAddMemberSelected,
       removeAddMember,
@@ -777,10 +1324,29 @@ export default {
       goBack,
       deleteMessage,
       toggleRole,
+      sendToAI,
+      showAIModal,
+      aiEditText,
+      aiEditPrompt,
+      aiMode,
+      aiTemplates,
+      applyAIEdit,
+      sendAIChat,
       removeMemberFromGroup,
       leaveGroup,
       saveChatName,
       cancelEditName,
+      isUserOnline,
+      onlineUsers,
+      typingUser,
+      inCall,
+      callStatus,
+      remoteUser,
+      incomingCall,
+      startCall,
+      endCall,
+      acceptCall,
+      declineCall,
     }
   },
 }
@@ -838,6 +1404,11 @@ export default {
   flex: 1;
   overflow: hidden;
   background: var(--bg-dark);
+  pointer-events: none;
+}
+
+.chat-content > * {
+  pointer-events: auto;
 }
 
 .messages-container {
@@ -886,6 +1457,71 @@ export default {
   border: 2px solid var(--primary-purple);
 }
 
+.message-avatar-placeholder {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary-purple) 0%, var(--primary-purple-light) 100%);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+  border: 2px solid var(--primary-purple);
+}
+
+.message-avatar.avatar-gold,
+.message-avatar-placeholder.avatar-gold {
+  border: 3px solid #ffd700;
+  box-shadow: 0 0 15px rgba(255, 215, 0, 0.5);
+}
+
+.message-avatar.avatar-border,
+.message-avatar-placeholder.avatar-border {
+  border: 3px solid #9333ea;
+  box-shadow: 0 0 10px rgba(147, 51, 234, 0.5);
+}
+
+.message-avatar.avatar-shine,
+.message-avatar-placeholder.avatar-shine {
+  position: relative;
+}
+
+.message-avatar.avatar-shine::after,
+.message-avatar-placeholder.avatar-shine::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.3) 50%, transparent 60%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.avatar-wrapper {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.avatar-wrapper .online-indicator {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 10px;
+  height: 10px;
+  background: #22c55e;
+  border: 2px solid var(--bg-dark);
+  border-radius: 50%;
+}
+
+.own-message .avatar-wrapper .online-indicator {
+  border-color: var(--primary-purple);
+}
+
 .message-body {
   flex: 1;
   min-width: 0;
@@ -910,8 +1546,19 @@ export default {
 .message-header {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   margin-bottom: 0.5rem;
   font-size: 0.85rem;
+}
+
+.message-header strong {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.ultra-badge-small {
+  font-size: 0.9rem;
 }
 
 .message-actions {
@@ -973,6 +1620,127 @@ export default {
   background: var(--bg-card);
   gap: 0.75rem;
   box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.2);
+}
+
+.typing-indicator {
+  padding: 0.5rem 1rem;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-style: italic;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border-color);
+}
+
+.call-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 2000;
+}
+
+.call-modal.incoming-call {
+  background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
+}
+
+.call-info {
+  text-align: center;
+  color: white;
+}
+
+.call-content {
+  text-align: center;
+  color: white;
+}
+
+.call-icon {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+.call-status {
+  font-size: 1.2rem;
+  margin-bottom: 1rem;
+  color: var(--primary-purple-light);
+}
+
+.call-user {
+  font-size: 1.5rem;
+  font-weight: bold;
+  margin-bottom: 2rem;
+}
+
+.call-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  margin-top: 1rem;
+}
+
+.accept-btn {
+  padding: 1rem 2rem;
+  background: #22c55e;
+  color: white;
+  border: none;
+  border-radius: 50px;
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.accept-btn:hover {
+  transform: scale(1.05);
+}
+
+.decline-btn {
+  padding: 1rem 2rem;
+  background: #dc2626;
+  color: white;
+  border: none;
+  border-radius: 50px;
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.decline-btn:hover {
+  transform: scale(1.05);
+}
+
+.end-call-btn {
+  padding: 1rem 2rem;
+  background: #dc2626;
+  color: white;
+  border: none;
+  border-radius: 50px;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.call-btn {
+  padding: 0.5rem;
+  background: rgba(10, 10, 10, 0.5);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 1.2rem;
+  transition: all 0.3s ease;
+}
+
+.call-btn:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--primary-purple);
 }
 
 .input-container input {
@@ -1078,6 +1846,9 @@ export default {
   border: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
+  z-index: 1001;
+  position: relative;
+  pointer-events: auto;
 }
 
 .modal-header {
@@ -1573,6 +2344,132 @@ export default {
 .settings-btn:hover {
   background: var(--bg-card-hover);
   border-color: var(--primary-purple);
+}
+
+.ai-btn {
+  padding: 10px 16px;
+  background: #9333ea;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 18px;
+}
+
+.ai-btn:hover {
+  background: #7c3aed;
+}
+
+.ai-modal {
+  max-width: 500px;
+}
+
+.ai-modal .btn-primary {
+  padding: 12px 24px;
+  background: linear-gradient(135deg, var(--primary-purple) 0%, #7c3aed 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.ai-modal .btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(147, 51, 234, 0.4);
+}
+
+.ai-modal .btn-secondary {
+  padding: 12px 24px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.ai-modal .btn-secondary:hover {
+  border-color: var(--primary-purple);
+  color: var(--text-primary);
+}
+
+.ai-modal .input {
+  width: 100%;
+  padding: 12px 16px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 14px;
+  resize: vertical;
+  min-height: 80px;
+}
+
+.ai-modal .input:focus {
+  outline: none;
+  border-color: var(--primary-purple);
+  box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.2);
+}
+
+.ai-modal .input::placeholder {
+  color: var(--text-secondary);
+}
+
+.ai-edit-mode .form-group {
+  margin-bottom: 16px;
+}
+
+.ai-edit-mode label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-secondary);
+}
+
+.ai-templates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ai-template-btn {
+  padding: 8px 16px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.ai-template-btn:hover {
+  border-color: var(--primary-purple);
+}
+
+.ai-template-btn.active {
+  background: var(--primary-purple);
+  color: white;
+  border-color: var(--primary-purple);
+}
+
+.modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.ai-chat-mode {
+  padding: 20px;
+  text-align: center;
+}
+
+.ai-hint {
+  color: var(--text-secondary);
+  margin-bottom: 16px;
 }
 </style>
 

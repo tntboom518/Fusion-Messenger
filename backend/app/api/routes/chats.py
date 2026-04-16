@@ -5,9 +5,12 @@ from sqlmodel import select
 
 from app import crud
 from app.api.deps import CurrentUser, SessionDep
+from app.api.routes.season_helpers import update_user_task_progress
 from app.models import (
     Chat,
     ChatAddMembers,
+    ChatBot,
+    ChatBotPublic,
     ChatCreate,
     ChatMember,
     ChatMemberPublic,
@@ -68,6 +71,15 @@ def _format_chat_public(
                         avatar_url=user.avatar_url,
                         is_active=user.is_active,
                         is_superuser=user.is_superuser,
+                        balance=user.balance,
+                        is_banned=user.is_banned,
+                        ban_reason=user.ban_reason,
+                        timezone=user.timezone,
+                        last_seen=user.last_seen,
+                        is_online=False,
+                        is_ultra=getattr(user, "is_ultra", False),
+                        ultra_expires_at=getattr(user, "ultra_expires_at", None),
+                        ultra_badge=getattr(user, "ultra_badge", None),
                     ),
                     joined_at=member.joined_at,
                     last_read_at=member.last_read_at,
@@ -86,6 +98,33 @@ def _format_chat_public(
                 avatar_url=sender_user.avatar_url,
                 is_active=sender_user.is_active,
                 is_superuser=sender_user.is_superuser,
+                balance=sender_user.balance,
+                is_banned=sender_user.is_banned,
+                ban_reason=sender_user.ban_reason,
+                timezone=sender_user.timezone,
+                last_seen=sender_user.last_seen,
+                is_online=False,
+                is_ultra=getattr(sender_user, "is_ultra", False),
+                ultra_expires_at=getattr(sender_user, "ultra_expires_at", None),
+                ultra_badge=getattr(sender_user, "ultra_badge", None),
+            )
+
+    # Get bot info for bot chats
+    bot_data = None
+    if chat.chat_type == "bot" and chat.bot_id:
+        bot = session.get(ChatBot, chat.bot_id)
+        if bot:
+            bot_data = ChatBotPublic(
+                id=bot.id,
+                owner_id=bot.owner_id,
+                name=bot.name,
+                description=bot.description,
+                avatar_url=bot.avatar_url,
+                language=bot.language,
+                is_active=bot.is_active,
+                is_public=bot.is_public,
+                created_at=bot.created_at,
+                updated_at=bot.updated_at,
             )
 
     return ChatPublic(
@@ -108,6 +147,7 @@ def _format_chat_public(
             if last_message
             else None
         ),
+        bot=bot_data,
     )
 
 
@@ -183,6 +223,11 @@ def create_group_chat(
         name=chat_in.name,
         member_ids=chat_in.member_ids,
     )
+
+    try:
+        update_user_task_progress(session, current_user.id, "chats")
+    except:
+        pass
 
     return _format_chat_public(chat, current_user.id, session)
 
@@ -269,6 +314,15 @@ def get_messages(
                 avatar_url=sender.avatar_url,
                 is_active=sender.is_active,
                 is_superuser=sender.is_superuser,
+                balance=sender.balance,
+                is_banned=sender.is_banned,
+                ban_reason=sender.ban_reason,
+                timezone=sender.timezone,
+                last_seen=sender.last_seen,
+                is_online=False,
+                is_ultra=getattr(sender, "is_ultra", False),
+                ultra_expires_at=getattr(sender, "ultra_expires_at", None),
+                ultra_badge=getattr(sender, "ultra_badge", None),
             )
         else:
             sender_public = None

@@ -124,6 +124,11 @@ export const usersAPI = {
     const response = await api.delete(`/users/${userId}`)
     return response.data
   },
+
+  addBalance: async (userId, amount) => {
+    const response = await api.post(`/users/${userId}/add-balance`, { amount })
+    return response.data
+  },
 }
 
 export const chatsAPI = {
@@ -158,13 +163,18 @@ export const chatsAPI = {
     return response.data
   },
   
-  getMessages: async (chatId, skip = 0, limit = 50) => {
+getMessages: async (chatId, skip = 0, limit = 50) => {
     const response = await api.get(`/chats/${chatId}/messages`, {
       params: { skip, limit },
     })
     return response.data
   },
   
+  markAsRead: async (chatId) => {
+    const response = await api.post(`/messages/${chatId}/read`)
+    return response.data
+  },
+   
   updateMemberRole: async (chatId, memberId, role) => {
     const response = await api.patch(`/chats/${chatId}/members/${memberId}/role`, { role })
     return response.data
@@ -216,6 +226,11 @@ export const messagesAPI = {
     const response = await api.delete(`/messages/${messageId}`)
     return response.data
   },
+  
+  chatWithAI: async (message) => {
+    const response = await api.post('/messages/ai/chat', { message })
+    return response.data
+  },
 }
 
 export const nftAPI = {
@@ -235,5 +250,192 @@ export const nftAPI = {
   },
 }
 
+export const botsAPI = {
+  getBots: async () => {
+    const response = await api.get('/bots/')
+    return response.data
+  },
+  
+  getAllBots: async () => {
+    const response = await api.get('/bots/all')
+    return response.data
+  },
+  
+  searchBots: async (query) => {
+    const response = await api.get('/bots/search', { params: { q: query } })
+    return response.data
+  },
+  
+  getBot: async (botId) => {
+    const response = await api.get(`/bots/${botId}`)
+    return response.data
+  },
+  
+  createBot: async (botData) => {
+    const response = await api.post('/bots/', botData)
+    return response.data
+  },
+  
+  updateBot: async (botId, botData) => {
+    const response = await api.patch(`/bots/${botId}`, botData)
+    return response.data
+  },
+  
+  deleteBot: async (botId) => {
+    const response = await api.delete(`/bots/${botId}`)
+    return response.data
+  },
+  
+  testBot: async (botId, message) => {
+    const response = await api.post(`/bots/${botId}/test?test_message=${encodeURIComponent(message)}`)
+    return response.data
+  },
+  
+  chatWithBot: async (botId, message) => {
+    const response = await api.post(`/bots/chat/${botId}`, { message })
+    return response.data
+  },
+
+  setGigaChatCredentials: async (credentials) => {
+    const response = await api.post('/bots/gigachat/set_credentials', { credentials })
+    return response.data
+  },
+
+  chatWithGigaChat: async (message) => {
+    const response = await api.post('/bots/gigachat/chat', { message })
+    return response.data
+  },
+
+createBotChat: async (botId) => {
+    const response = await api.post(`/bots/chats/${botId}`)
+    return response.data
+  },
+}
+
+// Forum API
+export const forumAPI = {
+  getPosts: async (limit = 20, offset = 0) => {
+    const response = await api.get(`/forum/posts?limit=${limit}&offset=${offset}`)
+    return response.data
+  },
+
+  getPost: async (postId) => {
+    const response = await api.get(`/forum/posts/${postId}`)
+    return response.data
+  },
+
+  createPost: async (data) => {
+    const response = await api.post('/forum/posts', data)
+    return response.data
+  },
+
+  deletePost: async (postId) => {
+    const response = await api.delete(`/forum/posts/${postId}`)
+    return response.data
+  },
+
+  likePost: async (postId) => {
+    const response = await api.post(`/forum/posts/${postId}/like`)
+    return response.data
+  },
+
+  getComments: async (postId, limit = 50, offset = 0) => {
+    const response = await api.get(`/forum/posts/${postId}/comments?limit=${limit}&offset=${offset}`)
+    return response.data
+  },
+
+  createComment: async (postId, content) => {
+    const response = await api.post(`/forum/posts/${postId}/comments`, { content })
+    return response.data
+  },
+
+  deleteComment: async (commentId) => {
+    const response = await api.delete(`/forum/comments/${commentId}`)
+    return response.data
+  },
+}
+
+// Channels API
+export const channelsAPI = {
+  getChannels: async (limit = 20, offset = 0) => {
+    const response = await api.get(`/channels?limit=${limit}&offset=${offset}`)
+    return response.data
+  },
+
+  getMyChannels: async () => {
+    const response = await api.get('/channels/my')
+    return response.data
+  },
+
+  getChannel: async (channelId) => {
+    const response = await api.get(`/channels/${channelId}`)
+    return response.data
+  },
+
+  createChannel: async (data) => {
+    const response = await api.post('/channels', data)
+    return response.data
+  },
+
+  deleteChannel: async (channelId) => {
+    const response = await api.delete(`/channels/${channelId}`)
+    return response.data
+  },
+
+  addAdmin: async (channelId, userId) => {
+    const response = await api.post(`/channels/${channelId}/admins`, { user_id: userId })
+    return response.data
+  },
+
+  removeAdmin: async (channelId, userId) => {
+    const response = await api.delete(`/channels/${channelId}/admins/${userId}`)
+    return response.data
+  },
+
+  getPosts: async (channelId, limit = 50, offset = 0) => {
+    const response = await api.get(`/channels/${channelId}/posts?limit=${limit}&offset=${offset}`)
+    return response.data
+  },
+
+  createPost: async (channelId, data) => {
+    const response = await api.post(`/channels/${channelId}/posts`, data)
+    return response.data
+  },
+
+  deletePost: async (postId) => {
+    const response = await api.delete(`/channels/posts/${postId}`)
+    return response.data
+  },
+}
+
+// Ultra API
+export const ultraAPI = {
+  getStatus: async () => {
+    const response = await api.get('/ultra/status')
+    return response.data
+  },
+
+  buy: async (days = 1) => {
+    const response = await api.post(`/ultra/buy?days=${days}`)
+    return response.data
+  },
+
+  setBadge: async (badgeId) => {
+    const response = await api.post('/ultra/badge', { badge_id: badgeId })
+    return response.data
+  },
+
+  grant: async (userId, hours) => {
+    const response = await api.post(`/ultra/grant?user_id=${userId}&hours=${hours}`)
+    return response.data
+  },
+
+  revoke: async (userId) => {
+    const response = await api.post(`/ultra/revoke?user_id=${userId}`)
+    return response.data
+  },
+}
+
+export { api }
 export default api
 
