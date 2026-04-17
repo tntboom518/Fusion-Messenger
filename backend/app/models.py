@@ -145,6 +145,7 @@ class Chat(SQLModel, table=True):
     name: str | None = Field(
         default=None, max_length=255
     )  # Название для групповых чатов
+    avatar_url: str | None = Field(default=None, max_length=500)  # Аватар группы
     bot_id: int | None = Field(
         default=None, foreign_key="chatbot.id", nullable=True
     )  # Связь с ботом
@@ -221,6 +222,7 @@ class ChatMessage(SQLModel, table=True):
 class ChatCreate(SQLModel):
     chat_type: str = "private"  # "private" или "group"
     name: str | None = None
+    avatar_url: str | None = None
     member_ids: list[int] = Field(default_factory=list)
 
 
@@ -228,6 +230,7 @@ class ChatPublic(SQLModel):
     id: int
     chat_type: str
     name: str | None
+    avatar_url: str | None = None
     created_at: datetime
     updated_at: datetime
     members: list["ChatMemberPublic"] = Field(default_factory=list)

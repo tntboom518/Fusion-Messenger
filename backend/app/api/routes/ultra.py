@@ -120,6 +120,109 @@ def buy_ultra(
     }
 
 
+class ShopItem(BaseModel):
+    id: int
+    name: str
+    description: str | None = None
+    price: int
+    rarity: str = "common"
+
+
+@router.get("/shop", response_model=dict)
+def get_shop(session: SessionDep) -> dict:
+    """Получить список предметов магазина"""
+    items = [
+        {
+            "id": 1,
+            "name": "Золотой ник",
+            "description": "Золотой цвет ника",
+            "price": 500,
+            "rarity": "rare",
+        },
+        {
+            "id": 2,
+            "name": "Серебряный ник",
+            "description": "Серебряный цвет ника",
+            "price": 300,
+            "rarity": "common",
+        },
+        {
+            "id": 3,
+            "name": "Анимированный аватар",
+            "description": "Анимированный аватар профиля",
+            "price": 1000,
+            "rarity": "epic",
+        },
+        {
+            "id": 4,
+            "name": "Рамка профиля",
+            "description": "Уникальная рамка вокруг аватара",
+            "price": 750,
+            "rarity": "rare",
+        },
+        {
+            "id": 5,
+            "name": "VIP бейдж",
+            "description": "Эксклюзивный бейдж VIP",
+            "price": 2000,
+            "rarity": "legendary",
+        },
+    ]
+    return {"data": items, "count": len(items)}
+
+
+class BuyItemRequest(BaseModel):
+    item_id: int
+
+
+@router.post("/buy-item")
+def buy_item(
+    session: SessionDep,
+    current_user: CurrentUser,
+    buy_data: BuyItemRequest,
+) -> dict:
+    """Купить предмет из магазина"""
+    user = session.get(User, current_user.id)
+
+    items = {
+        1: {"name": "Золотой ник", "price": 500},
+        2: {"name": "Серебряный ник", "price": 300},
+        3: {"name": "Анимированный аватар", "price": 1000},
+        4: {"name": "Рамка профиля", "price": 750},
+        5: {"name": "VIP бейдж", "price": 2000},
+    }
+
+    item = items.get(buy_data.item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Предмет не найден")
+
+    if user.balance < item["price"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Недостаточно шекелей. У вас {user.balance}",
+        )
+
+    user.balance -= item["price"]
+
+    if buy_data.item_id in [1, 2]:
+        user.ultra_profile_color = "gold" if buy_data.item_id == 1 else "silver"
+    elif buy_data.item_id == 3:
+        user.ultra_avatar_style = "animated"
+    elif buy_data.item_id == 4:
+        user.ultra_avatar_style = "bordered"
+    elif buy_data.item_id == 5:
+        user.ultra_badge = "vip"
+
+    session.commit()
+    session.refresh(user)
+
+    return {
+        "ok": True,
+        "item": item["name"],
+        "new_balance": user.balance,
+    }
+
+
 @router.post("/badge")
 def set_badge(
     badge_data: SetUltraBadge,
@@ -259,3 +362,39 @@ def revoke_ultra(
     session.commit()
 
     return {"ok": True}
+
+
+class TransferShekelsRequest(BaseModel):
+    recipient_id: int
+    amount: int
+
+
+@router.post("/transfer")
+def transfer_shekels(
+    session: SessionDep,
+    current_user: CurrentUser,
+    transfer_data: TransferShekelsRequest,
+) -> dict:
+    """Перевести шекели другому пользователю"""
+    user = session.get(User, current_user.id)
+    recipient = session.get(User, transfer_data.recipient_id)
+
+    if not recipient:
+        raise HTTPException(status_code=404, detail="Получатель не найден")
+
+    if user.balance < transfer_data.amount:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Недостаточно шекелей. У вас {user.balance}",
+        )
+
+    user.balance -= transfer_data.amount
+    recipient.balance += transfer_data.amount
+
+    session.commit()
+
+    return {
+        "ok": True,
+        "new_balance": user.balance,
+        "transferred": transfer_data.amount,
+    }

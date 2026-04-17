@@ -175,8 +175,8 @@ def get_my_progress(
     }
 
 
-@router.post("/check-task")
-def check_task_completion(
+@router.post("/claim-task")
+def claim_task(
     session: SessionDep,
     current_user: CurrentUser,
     task_data: dict,

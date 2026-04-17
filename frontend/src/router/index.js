@@ -74,6 +74,12 @@ const routes = [
     component: () => import('../views/Ultra.vue'),
     meta: { requiresAuth: true },
   },
+  {
+    path: '/services',
+    name: 'Services',
+    component: () => import('../views/Services.vue'),
+    meta: { requiresAuth: true },
+  },
 ]
 
 const router = createRouter({

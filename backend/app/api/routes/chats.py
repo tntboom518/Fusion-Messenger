@@ -137,6 +137,7 @@ def _format_chat_public(
         id=chat.id,
         chat_type=chat.chat_type,
         name=chat_name,
+        avatar_url=chat.avatar_url,
         created_at=chat.created_at,
         updated_at=chat.updated_at,
         members=members_public,
@@ -490,3 +491,79 @@ def update_chat_name(
         raise HTTPException(status_code=403, detail="Only admins can change group name")
 
     return _format_chat_public(updated_chat, current_user.id, session)
+
+
+@router.delete("/{chat_id}")
+def delete_chat(
+    chat_id: int,
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> Any:
+    """Удалить групповой чат (только админ или создатель)"""
+    from app.models import ChatMember
+
+    chat = session.get(Chat, chat_id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    if chat.chat_type == "private":
+        raise HTTPException(status_code=400, detail="Cannot delete private chats")
+
+    # Check if user is admin or creator
+    member = session.exec(
+        select(ChatMember).where(
+            ChatMember.chat_id == chat_id,
+            ChatMember.user_id == current_user.id,
+        )
+    ).first()
+
+    if not member or member.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can delete this chat")
+
+    session.delete(chat)
+    session.commit()
+    return Message(message="Chat deleted successfully")
+
+
+@router.patch("/{chat_id}/avatar")
+def update_chat_avatar(
+    chat_id: int,
+    session: SessionDep,
+    current_user: CurrentUser,
+    body: dict,
+) -> Any:
+    """Изменить аватар группы (только админ)"""
+    from app.models import ChatMember
+
+    avatar_url = body.get("avatar_url", "")
+    if not avatar_url:
+        raise HTTPException(status_code=400, detail="avatar_url is required")
+
+    chat = session.get(Chat, chat_id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    if chat.chat_type == "private":
+        raise HTTPException(
+            status_code=400, detail="Cannot set avatar for private chats"
+        )
+
+    # Check if user is admin
+    member = session.exec(
+        select(ChatMember).where(
+            ChatMember.chat_id == chat_id,
+            ChatMember.user_id == current_user.id,
+        )
+    ).first()
+
+    if not member or member.role != "admin":
+        raise HTTPException(
+            status_code=403, detail="Only admins can change group avatar"
+        )
+
+    chat.avatar_url = avatar_url
+    session.add(chat)
+    session.commit()
+    session.refresh(chat)
+
+    return _format_chat_public(chat, current_user.id, session)

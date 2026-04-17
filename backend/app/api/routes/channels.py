@@ -235,6 +235,54 @@ def delete_channel(channel_id: int, session: SessionDep, current_user: CurrentUs
     return {"ok": True}
 
 
+@router.patch("/{channel_id}/avatar", response_model=ChannelPublic)
+def update_channel_avatar(
+    channel_id: int,
+    session: SessionDep,
+    current_user: CurrentUser,
+    body: dict,
+):
+    """Изменить аватар канала (только админ)"""
+    avatar_url = body.get("avatar_url", "")
+    channel = session.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Канал не найден")
+
+    if not is_channel_admin(session, channel_id, current_user.id):
+        raise HTTPException(status_code=403, detail="Нет прав")
+
+    channel.avatar_url = avatar_url
+    session.add(channel)
+    session.commit()
+    session.refresh(channel)
+
+    return ChannelPublic(
+        id=channel.id,
+        creator_id=channel.creator_id,
+        creator=UserPublic(
+            id=channel.creator.id,
+            email=channel.creator.email,
+            full_name=channel.creator.full_name,
+            is_active=channel.creator.is_active,
+            is_superuser=channel.creator.is_superuser,
+            avatar_url=channel.creator.avatar_url,
+            balance=channel.creator.balance,
+            is_banned=channel.creator.is_banned,
+            ban_reason=channel.creator.ban_reason,
+            timezone=channel.creator.timezone,
+            last_seen=channel.creator.last_seen,
+            is_online=False,
+        ),
+        name=channel.name,
+        description=channel.description,
+        avatar_url=channel.avatar_url,
+        is_public=channel.is_public,
+        created_at=channel.created_at,
+        is_admin=True,
+        is_creator=channel.creator_id == current_user.id,
+    )
+
+
 @router.post("/{channel_id}/admins", response_model=ChannelPublic)
 def add_admin(
     channel_id: int,

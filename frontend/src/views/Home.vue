@@ -10,6 +10,7 @@
         <router-link to="/forum" class="forum-link">📋</router-link>
         <router-link to="/channels" class="channels-link">📢</router-link>
         <router-link to="/bots" class="bots-link">🤖</router-link>
+        <router-link to="/services" class="services-link">🛠</router-link>
         <router-link to="/profile" class="profile-link">👤</router-link>
         <button @click="handleLogout" class="logout-btn">Выйти</button>
       </div>

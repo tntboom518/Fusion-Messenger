@@ -56,6 +56,43 @@ def search_users(
     return UsersPublic(data=users, count=len(users))
 
 
+@router.get("/leaderboard", response_model=list[UserPublic])
+def get_leaderboard(
+    session: SessionDep,
+    limit: int = Query(default=20, le=100),
+) -> Any:
+    """Получить топ пользователей по балансу"""
+    users = session.exec(
+        select(User)
+        .where(User.is_active == True)
+        .order_by(User.balance.desc())
+        .limit(limit)
+    ).all()
+    return [
+        UserPublic(
+            id=user.id,
+            email=user.email,
+            full_name=user.full_name,
+            avatar_url=user.avatar_url,
+            is_active=user.is_active,
+            is_superuser=user.is_superuser,
+            balance=user.balance,
+            is_banned=user.is_banned,
+            ban_reason=user.ban_reason,
+            timezone=user.timezone,
+            last_seen=user.last_seen,
+            is_online=False,
+            is_ultra=getattr(user, "is_ultra", False),
+            ultra_expires_at=getattr(user, "ultra_expires_at", None),
+            ultra_badge=getattr(user, "ultra_badge", None),
+            ultra_profile_color=getattr(user, "ultra_profile_color", None),
+            ultra_avatar_style=getattr(user, "ultra_avatar_style", None),
+            is_verified=getattr(user, "is_verified", False),
+        )
+        for user in users
+    ]
+
+
 @router.get(
     "/",
     dependencies=[Depends(get_current_active_superuser)],
